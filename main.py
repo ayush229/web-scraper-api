@@ -9,7 +9,7 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Simplified auth (set API_AUTH in Railway vars)
+# Basic auth (set API_AUTH in Railway vars)
 API_AUTH = os.getenv('API_AUTH', 'ayush1:blackbox098')
 
 @app.before_request
@@ -19,7 +19,7 @@ def authenticate():
         return jsonify({"error": "Unauthorized"}), 401
 
 @app.route('/scrape', methods=['GET', 'POST'])
-def scrape():
+def api_handler():
     try:
         # Get parameters
         params = request.args if request.method == 'GET' else request.get_json()
@@ -38,8 +38,6 @@ def scrape():
             
         return jsonify({
             "status": "success",
-            "url": params['url'],
-            "type": params.get('type', 'beautify'),
             "data": result
         })
         
@@ -47,8 +45,7 @@ def scrape():
         logger.error(f"Request failed: {str(e)}")
         return jsonify({
             "status": "error",
-            "error": "Internal server error",
-            "details": str(e)
+            "error": "Internal server error"
         }), 500
 
 if __name__ == '__main__':
