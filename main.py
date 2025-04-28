@@ -1,10 +1,37 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
+from functools import wraps
 from scraper import scrape_website
 import logging
 
 app = Flask(__name__)
 
+# Authentication credentials
+AUTH_USERNAME = "ayush1"
+AUTH_PASSWORD = "blackbox098"
+
+def check_auth(username, password):
+    """Check if username/password are correct"""
+    return username == AUTH_USERNAME and password == AUTH_PASSWORD
+
+def authenticate():
+    """Send 401 response with auth prompt"""
+    return make_response(
+        jsonify({"error": "Authentication required"}),
+        401,
+        {'WWW-Authenticate': 'Basic realm="Login Required"'}
+    )
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
 @app.route('/scrape', methods=['GET', 'POST'])
+@requires_auth
 def scrape():
     try:
         # Handle both GET and POST requests
