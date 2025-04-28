@@ -1,0 +1,16 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "config": {
+      "scripts": {
+        "postinstall": "curl -fsSL https://ollama.com/install.sh | sh && ollama pull llama3"
+      }
+    }
+  },
+  "deploy": {
+    "start": {
+      "web": "gunicorn main:app -b 0.0.0.0:$PORT",
+      "worker": "ollama serve"
+    }
+  }
+}
