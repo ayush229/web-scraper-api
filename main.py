@@ -1,21 +1,40 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from scraper import scrape_website
+from functools import wraps
 import logging
 
 app = Flask(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure basic auth credentials
+AUTH_USERNAME = "ayush1"
+AUTH_PASSWORD = "blackbox098"
+
+def check_auth(username, password):
+    """Check if username/password are correct"""
+    return username == AUTH_USERNAME and password == AUTH_PASSWORD
+
+def authenticate():
+    """Send 401 response with auth prompt"""
+    return make_response(
+        jsonify({"error": "Authentication required"}),
+        401,
+        {'WWW-Authenticate': 'Basic realm="Login Required"'}
+    )
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
 
 @app.route('/scrape', methods=['GET', 'POST'])
+@requires_auth  # This decorator enforces authentication
 def scrape():
-    """
-    API endpoint for web scraping
-    Supports both GET and POST methods
-    """
     try:
-        # Get parameters based on request method
+        # Get parameters
         if request.method == 'GET':
             url = request.args.get('url')
             selector = request.args.get('selector')
@@ -24,33 +43,18 @@ def scrape():
             url = data.get('url')
             selector = data.get('selector')
         
-        # Validate URL parameter
         if not url:
-            logger.error("Missing URL parameter")
-            return jsonify({
-                "status": "error",
-                "error": "URL parameter is required"
-            }), 400
+            return jsonify({"error": "URL is required"}), 400
         
-        logger.info(f"Received scrape request for URL: {url}")
-        
-        # Scrape the website
         result = scrape_website(url, selector)
         
-        # Return appropriate response
         if result.get("status") == "error":
-            logger.error(f"Scraping failed for {url}: {result.get('error')}")
-            return jsonify(result), 400 if "403" in str(result.get("error")) else 500
+            return jsonify(result), 400
         
-        logger.info(f"Successfully scraped {url}")
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Unexpected error in API: {str(e)}")
-        return jsonify({
-            "status": "error",
-            "error": f"Internal server error: {str(e)}"
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000)
