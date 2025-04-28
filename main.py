@@ -5,18 +5,16 @@ import logging
 
 app = Flask(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Authentication
+# Authentication credentials
 AUTH_USERNAME = "ayush1"
 AUTH_PASSWORD = "blackbox098"
 
 def check_auth(username, password):
+    """Check if username/password are correct"""
     return username == AUTH_USERNAME and password == AUTH_PASSWORD
 
 def authenticate():
+    """Send 401 response with auth prompt"""
     return make_response(
         jsonify({"error": "Authentication required"}),
         401,
@@ -36,14 +34,14 @@ def requires_auth(f):
 @requires_auth
 def scrape():
     try:
-        # Get parameters
+        # Handle both GET and POST requests
         if request.method == 'GET':
             url = request.args.get('url')
-            selector = request.args.get('selector')
+            content_type = request.args.get('type', 'beautify')
         else:
             data = request.get_json()
             url = data.get('url')
-            selector = data.get('selector')
+            content_type = data.get('type', 'beautify')
 
         if not url:
             return jsonify({
@@ -51,18 +49,23 @@ def scrape():
                 "error": "URL parameter is required"
             }), 400
 
-        result = scrape_website(url, selector)
+        if content_type not in ('raw', 'beautify'):
+            return jsonify({
+                "status": "error",
+                "error": "Invalid type parameter. Use 'raw' or 'beautify'"
+            }), 400
+
+        result = scrape_website(url, content_type)
         
         if result["status"] == "error":
-            return jsonify(result), result.get("status_code", 500)
+            return jsonify(result), 500
             
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
         return jsonify({
             "status": "error",
-            "error": "Internal server error"
+            "error": f"Internal server error: {str(e)}"
         }), 500
 
 if __name__ == '__main__':
