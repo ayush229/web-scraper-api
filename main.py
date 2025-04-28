@@ -1,6 +1,6 @@
-from flask import Flask, request, jsonify
-from scraper import handle_request
-import os
+from flask import Flask, request, jsonify, make_response
+from functools import wraps
+from scraper import scrape_website
 import logging
 
 app = Flask(__name__)
@@ -9,44 +9,61 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Basic auth (set API_AUTH in Railway vars)
-API_AUTH = os.getenv('API_AUTH', 'ayush1:blackbox098')
+# Authentication
+AUTH_USERNAME = "ayush1"
+AUTH_PASSWORD = "blackbox098"
 
-@app.before_request
+def check_auth(username, password):
+    return username == AUTH_USERNAME and password == AUTH_PASSWORD
+
 def authenticate():
-    auth = request.authorization
-    if not auth or f"{auth.username}:{auth.password}" != API_AUTH:
-        return jsonify({"error": "Unauthorized"}), 401
+    return make_response(
+        jsonify({"error": "Authentication required"}),
+        401,
+        {'WWW-Authenticate': 'Basic realm="Login Required"'}
+    )
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
 
 @app.route('/scrape', methods=['GET', 'POST'])
-def api_handler():
+@requires_auth
+def scrape():
     try:
         # Get parameters
-        params = request.args if request.method == 'GET' else request.get_json()
+        if request.method == 'GET':
+            url = request.args.get('url')
+            selector = request.args.get('selector')
+        else:
+            data = request.get_json()
+            url = data.get('url')
+            selector = data.get('selector')
+
+        if not url:
+            return jsonify({
+                "status": "error",
+                "error": "URL parameter is required"
+            }), 400
+
+        result = scrape_website(url, selector)
         
-        if not params.get('url'):
-            return jsonify({"error": "URL parameter is required"}), 400
+        if result["status"] == "error":
+            return jsonify(result), result.get("status_code", 500)
             
-        result = handle_request(
-            url=params['url'],
-            mode=params.get('type', 'beautify'),
-            prompt=params.get('user_prompt')
-        )
-        
-        if 'error' in result:
-            return jsonify({"status": "error", **result}), 400
-            
-        return jsonify({
-            "status": "success",
-            "data": result
-        })
-        
+        return jsonify(result)
+
     except Exception as e:
-        logger.error(f"Request failed: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}")
         return jsonify({
             "status": "error",
             "error": "Internal server error"
         }), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+    app.run(host='0.0.0.0', port=5000)
