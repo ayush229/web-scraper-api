@@ -11,6 +11,61 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+def organize_content_by_headings(soup, base_url):
+    """Organize content hierarchically under headings"""
+    sections = []
+    current_section = None
+    
+    # Find all heading elements and content between them
+    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'img', 'a']):
+        if element.name.startswith('h'):
+            # Save previous section if exists
+            if current_section:
+                sections.append(current_section)
+            
+            # Start new section
+            current_section = {
+                "heading": {
+                    "level": int(element.name[1]),
+                    "text": clean_text(element.get_text())
+                },
+                "content": [],
+                "images": [],
+                "links": []
+            }
+        else:
+            if not current_section:
+                # Content before first heading
+                current_section = {
+                    "heading": None,
+                    "content": [],
+                    "images": [],
+                    "links": []
+                }
+            
+            # Process content elements
+            if element.name in ['p', 'ul', 'ol']:
+                text = clean_text(element.get_text())
+                if text:
+                    current_section["content"].append(text)
+            elif element.name == 'img' and element.get('src'):
+                current_section["images"].append({
+                    "url": urljoin(base_url, element['src']),
+                    "alt": clean_text(element.get('alt', ''))
+                })
+            elif element.name == 'a' and element.get('href'):
+                if not element['href'].startswith(('#', 'javascript:')):
+                    current_section["links"].append({
+                        "url": urljoin(base_url, element['href']),
+                        "text": clean_text(element.get_text())
+                    })
+    
+    # Add the last section
+    if current_section:
+        sections.append(current_section)
+    
+    return sections
+
 def extract_raw_content(soup, base_url):
     """Extract completely raw content with all HTML"""
     return {
@@ -23,38 +78,15 @@ def extract_raw_content(soup, base_url):
     }
 
 def extract_beautified_content(soup, base_url):
-    """Extract cleaned and structured content"""
+    """Extract cleaned and structured content organized by headings"""
     content = {
-        "text": [],
-        "headings": [],
-        "images": [],
-        "metadata": {}
+        "metadata": {
+            "title": clean_text(soup.title.string if soup.title else ""),
+            "description": clean_text(soup.find('meta', attrs={'name': 'description'})['content']) 
+                          if soup.find('meta', attrs={'name': 'description'}) else ""
+        },
+        "sections": organize_content_by_headings(soup, base_url)
     }
-
-    # Extract clean text from all paragraphs and divs
-    for element in soup.find_all(['p', 'div', 'article']):
-        text = clean_text(element.get_text())
-        if text and len(text) > 20:
-            content["text"].append(text)
-
-    # Extract headings
-    for level in range(1, 7):
-        content["headings"].extend([
-            {"level": level, "text": clean_text(h.get_text())}
-            for h in soup.find_all(f'h{level}')
-        ])
-
-    # Extract images with alt text
-    content["images"] = [{
-        "url": urljoin(base_url, img['src']),
-        "alt": clean_text(img.get('alt', ''))
-    } for img in soup.find_all('img') if img.get('src')]
-
-    # Extract metadata
-    content["metadata"]["title"] = clean_text(soup.title.string if soup.title else "")
-    meta_desc = soup.find('meta', attrs={'name': 'description'})
-    content["metadata"]["description"] = clean_text(meta_desc['content']) if meta_desc else ""
-
     return content
 
 def scrape_website(url, content_type='beautify'):
