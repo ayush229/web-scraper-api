@@ -3,13 +3,14 @@
     "builder": "nixpacks",
     "config": {
       "scripts": {
-        "setup": "curl -fsSL https://ollama.com/install.sh | sh && ollama pull mistral"
+        "setup": "curl -fsSL https://ollama.com/install.sh | sh && ollama pull mistral",
+        "build": "pip install -r requirements.txt"
       }
     }
   },
   "deploy": {
     "services": {
-      "api": {
+      "web": {
         "start": "gunicorn main:app -b 0.0.0.0:$PORT -t 120 --workers 1",
         "memory": 1024
       },
