@@ -3,13 +3,10 @@ import requests
 import re
 import os
 import time
-from urllib.parse import urljoin
 
-# Configuration
 OLLAMA_ENDPOINT = os.getenv('OLLAMA_ENDPOINT', 'http://ollama:11434/api/generate')
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'mistral')
-MAX_CONTENT_LENGTH = 8000  # Keep responses manageable
-REQUEST_TIMEOUT = 45  # Seconds
+MAX_CONTENT_LENGTH = 6000  # Keep responses manageable
+REQUEST_TIMEOUT = 30  # Seconds
 
 def clean_text(text):
     """Efficient text cleaning with length limit"""
@@ -19,25 +16,25 @@ def clean_text(text):
     return text[:MAX_CONTENT_LENGTH]
 
 def get_ai_response(prompt, content):
-    """Robust Ollama API handler"""
-    try:
-        start_time = time.time()
-        response = requests.post(
-            OLLAMA_ENDPOINT,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": f"Content: {content[:5000]}\n\nQuestion: {prompt}\n\nAnswer concisely:",
-                "stream": False,
-                "options": {"temperature": 0.5}
-            },
-            timeout=REQUEST_TIMEOUT
-        )
-        response.raise_for_status()
-        return response.json().get("response", "No AI response generated")
-    except requests.exceptions.RequestException as e:
-        return f"AI service error: {type(e).__name__}"
-    except Exception as e:
-        return f"Processing error: {str(e)}"
+    """Robust Ollama API handler with retries"""
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                OLLAMA_ENDPOINT,
+                json={
+                    "model": "mistral",
+                    "prompt": f"Analyze this content: {content[:5000]}\n\nQuestion: {prompt}\n\nAnswer:",
+                    "stream": False,
+                    "options": {"temperature": 0.5}
+                },
+                timeout=REQUEST_TIMEOUT
+            )
+            response.raise_for_status()
+            return response.json().get("response", "No response generated")
+        except requests.exceptions.RequestException:
+            if attempt == 2:
+                return "AI service unavailable"
+            time.sleep(2)
 
 def scrape_page(url):
     """Core scraping function with safety limits"""
@@ -73,8 +70,7 @@ def handle_request(url, mode='beautify', prompt=None):
                 "ai_response": get_ai_response(prompt, content),
                 "content_preview": content[:500]
             }
-        else:
-            return {"content": content}
+        return {"content": content}
             
     except Exception as e:
         return {"error": str(e)}
