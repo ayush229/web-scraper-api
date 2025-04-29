@@ -67,43 +67,47 @@ def scrape_website(url, type="beautify"):
     }
 
 
-def crawl_website(base_url, type="beautify", max_pages=30):  # Reduced default max_pages
+def crawl_website(base_url, type="beautify", max_pages=50):  # Increased default max_pages
     visited = set()
     to_visit = [base_url]
     domain = urlparse(base_url).netloc
     all_data = []
-    page_count = 0
 
-    while to_visit and page_count < max_pages:
+    while to_visit and len(visited) < max_pages:
         current_url = to_visit.pop(0)
         if current_url in visited:
             continue
-
         visited.add(current_url)
+
         try:
             result = scrape_website(current_url, type)
             if result["status"] == "success":
-                page_data = {
-                    "url": current_url,
-                    "sections": result["data"]["sections"] if "sections" in result["data"] else result["data"]
-                }
+                page_data = {"url": current_url}
+                if type == "raw":
+                    page_data["raw_data"] = result["data"]
+                else:
+                    page_data["content"] = []
+                    if "sections" in result["data"]:
+                        for section in result["data"]["sections"]:
+                            section_content = {"heading": section.get("heading"), "paragraphs": section.get("content", [])}
+                            page_data["content"].append(section_content)
+                            for link in section.get("links", []):
+                                parsed_link = urlparse(link)
+                                absolute_link = urljoin(current_url, parsed_link.path)
+                                if parsed_link.netloc == domain or parsed_link.netloc == '':
+                                    clean_link = absolute_link.rstrip('/')
+                                    if clean_link not in visited and clean_link not in to_visit:
+                                        to_visit.append(clean_link)
+                    else:
+                        page_data["raw_data"] = result["data"] # Fallback for non-sectioned beautify
                 all_data.append(page_data)
-                page_count += 1
-
-                if "sections" in result["data"]:
-                    for section in result["data"]["sections"]:
-                        links = section.get("links", [])
-                        for link in links:
-                            parsed = urlparse(link)
-                            clean_link = link.rstrip('/')
-                            if (parsed.netloc == domain or parsed.netloc == '') and clean_link not in visited and clean_link not in to_visit:
-                                to_visit.append(clean_link)
-            elif result["status"] == "error":
-                print(f"Error scraping {current_url}: {result['error']}")
+            else:
+                print(f"Error scraping {current_url} during crawl: {result['error']}")
+                all_data.append({"url": current_url, "error": result["error"]})
         except requests.exceptions.RequestException as e:
             print(f"Network error processing {current_url}: {e}")
         except Exception as e:
-            print(f"An unexpected error occurred while crawling {current_url}: {e}")
+            print(f"An unexpected error occurred during crawl of {current_url}: {e}")
 
     return {
         "status": "success",
