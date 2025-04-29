@@ -1,16 +1,17 @@
 from flask import Flask, request, jsonify, make_response
 from functools import wraps
-from scraper import scrape_website, crawl_website
+from scraper import scrape_website, crawl_website  # extended import
+import logging
 import os
-from together import Together
+from together import Together  # Importing Together Python client
 
 app = Flask(__name__)
 
-# Authentication
+# Authentication credentials
 AUTH_USERNAME = "ayush1"
 AUTH_PASSWORD = "blackbox098"
 
-# Initialize Together AI client
+# Initialize Together API client using the API token from environment variable
 client = Together()
 
 def check_auth(username, password):
@@ -55,18 +56,30 @@ def scrape():
             content_type = request.args.get('type', 'beautify')
             user_query = request.args.get('user_query', '')
         else:
-            data = request.get_json(force=True) or {}
+            try:
+                data = request.get_json(force=True) or {}
+            except Exception:
+                data = {}
             url = data.get('url', '')
             content_type = data.get('type', 'beautify')
             user_query = data.get('user_query', '')
 
         if not url:
-            return jsonify({"status": "error", "error": "URL parameter is required"}), 400
+            return jsonify({
+                "status": "error",
+                "error": "URL parameter is required"
+            }), 400
 
-        if content_type not in ('raw', 'beautify', 'ai', 'crawl_raw', 'crawl_beautify', 'crawl_ai'):
-            return jsonify({"status": "error", "error": "Invalid type parameter."}), 400
+        if content_type not in (
+            'raw', 'beautify', 'ai',
+            'crawl_raw', 'crawl_beautify', 'crawl_ai'
+        ):
+            return jsonify({
+                "status": "error",
+                "error": "Invalid type parameter."
+            }), 400
 
-        # Handle crawling
+        # Handle crawling types
         if content_type.startswith("crawl_"):
             crawl_type = content_type.replace("crawl_", "")
             crawl_result = crawl_website(url, crawl_type)
@@ -77,16 +90,15 @@ def scrape():
             if content_type == "crawl_ai":
                 full_text = ""
                 for page in crawl_result["data"]:
-                    for sec in page.get("sections", []):
-                        heading = sec.get("heading", {}).get("text")
-                        if heading:
-                            full_text += f"\n\n{heading}"
+                    for sec in page["sections"]:
+                        if sec.get("heading") and sec["heading"].get("text"):
+                            full_text += f"\n\n{sec['heading']['text']}"
                         for para in sec.get("content", []):
                             full_text += f"\n{para}"
 
                 prompt = f"""You are an intelligent assistant helping users get answers from a website's text.
 User query: "{user_query}"
-Website content: \"\"\"{full_text}\"\"\"
+Website content: \"\"\"{full_text}\"\"\" 
 Answer the query in a natural and informative way. If no answer is found, say: "Sorry, not found."
 """
                 ai_response = ask_llama(prompt)
@@ -98,7 +110,7 @@ Answer the query in a natural and informative way. If no answer is found, say: "
                     "url": url,
                     "type": "crawl_ai",
                     "ai_response": ai_response,
-                    "pages": crawl_result["data"]
+                    "pages": crawl_result["data"]  # Optionally, you can remove this to hide crawled data
                 })
 
             return jsonify({
@@ -108,7 +120,7 @@ Answer the query in a natural and informative way. If no answer is found, say: "
                 "pages": crawl_result["data"]
             })
 
-        # Handle raw/beautify/ai
+        # Handle normal raw/beautify/ai
         result = scrape_website(url, 'beautify' if content_type == 'ai' else content_type)
 
         if result["status"] == "error":
@@ -119,21 +131,20 @@ Answer the query in a natural and informative way. If no answer is found, say: "
             try:
                 sections = result["data"]["sections"]
                 for sec in sections:
-                    heading = sec.get("heading", {}).get("text")
-                    if heading:
-                        scraped_text += f"\n\n{heading}"
+                    if sec.get("heading") and sec["heading"].get("text"):
+                        scraped_text += f"\n\n{sec['heading']['text']}"
                     for para in sec.get("content", []):
                         scraped_text += f"\n{para}"
             except Exception as e:
+                print(f"Content parsing failed: {e}")
                 return jsonify({
                     "status": "error",
-                    "error": f"AI generation error: {str(e)}",
-                    "url": url
+                    "error": "Failed to parse structured content for AI query"
                 }), 500
 
             prompt = f"""You are an intelligent assistant helping users get answers from a website's text.
 User query: "{user_query}"
-Website content: \"\"\"{scraped_text}\"\"\"
+Website content: \"\"\"{scraped_text}\"\"\" 
 Answer the query in a natural and informative way. If no answer is found, say: "Sorry, not found."
 """
             ai_response = ask_llama(prompt)
