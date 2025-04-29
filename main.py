@@ -2,19 +2,27 @@ from flask import Flask, request, jsonify, make_response
 from functools import wraps
 from scraper import scrape_website
 import logging
+import os
+from dotenv import load_dotenv
+from flask_cors import CORS
+
+# Load environment variables from .env
+load_dotenv()
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
-# Authentication credentials
-AUTH_USERNAME = "ayush1"
-AUTH_PASSWORD = "blackbox098"
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+
+# Authentication credentials from environment
+AUTH_USERNAME = os.getenv("AUTH_USERNAME", "admin")
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "password")
 
 def check_auth(username, password):
-    """Check if username/password are correct"""
     return username == AUTH_USERNAME and password == AUTH_PASSWORD
 
 def authenticate():
-    """Send 401 response with auth prompt"""
     return make_response(
         jsonify({"error": "Authentication required"}),
         401,
@@ -34,7 +42,6 @@ def requires_auth(f):
 @requires_auth
 def scrape():
     try:
-        # Handle both GET and POST requests
         if request.method == 'GET':
             url = request.args.get('url')
             content_type = request.args.get('type', 'beautify')
@@ -56,13 +63,12 @@ def scrape():
             }), 400
 
         result = scrape_website(url, content_type)
-        
-        if result["status"] == "error":
-            return jsonify(result), 500
-            
-        return jsonify(result)
+
+        status_code = 500 if result["status"] == "error" else 200
+        return jsonify(result), status_code
 
     except Exception as e:
+        logging.exception("Unexpected server error")
         return jsonify({
             "status": "error",
             "error": f"Internal server error: {str(e)}"
