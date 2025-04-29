@@ -2,6 +2,10 @@ from bs4 import BeautifulSoup, FeatureNotFound
 import requests
 import re
 from urllib.parse import urljoin
+from together import Together
+
+# Init Together AI client (make sure your key is set via environment variable or replace below)
+together = Together(api_key="your_api_key")
 
 def clean_text(text):
     if not text:
@@ -130,9 +134,52 @@ def scrape_website(url, content_type='beautify'):
             "error": f"Unexpected error: {str(e)}"
         }
 
-# Placeholder if crawl_website is accidentally imported elsewhere
-def crawl_website(*args, **kwargs):
-    return {
-        "status": "error",
-        "error": "crawl_website() is not implemented."
-    }
+# ✅ NOW IMPLEMENTED
+def crawl_website(url, user_query):
+    try:
+        scraped = scrape_website(url, content_type='beautify')
+        if scraped['status'] != 'success':
+            return scraped
+
+        sections = scraped['data']['sections']
+        full_text = "\n\n".join(
+            (s.get("heading", {}).get("text", "") or "") + "\n" + "\n".join(s["content"])
+            for s in sections
+        )
+
+        if not full_text.strip():
+            return {
+                "status": "error",
+                "url": url,
+                "error": "Unable to extract meaningful text content."
+            }
+
+        prompt = f"""You are a helpful assistant. Based on the following website content, answer this question:
+Website Content:
+\"\"\"
+{full_text[:5000]}
+\"\"\"
+
+Question: {user_query}
+Answer:"""
+
+        response = together.chat.completions.create(
+            model="mistral-7b-instruct",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+
+        return {
+            "status": "success",
+            "url": url,
+            "type": "ai",
+            "query": user_query,
+            "answer": response.choices[0].message.content
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "url": url,
+            "error": f"AI generation error: {str(e)}"
+        }
