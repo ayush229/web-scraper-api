@@ -1,16 +1,16 @@
 from flask import Flask, request, jsonify, make_response
 from functools import wraps
-from scraper import scrape_website
 from flask_cors import CORS
+from scraper import scrape_website
+import logging
 import requests
-import os
 
 app = Flask(__name__)
 CORS(app)
 
+# Authentication credentials
 AUTH_USERNAME = "ayush1"
 AUTH_PASSWORD = "blackbox098"
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")  # set this in Railway environment variables
 
 def check_auth(username, password):
     return username == AUTH_USERNAME and password == AUTH_PASSWORD
@@ -30,38 +30,6 @@ def requires_auth(f):
             return authenticate()
         return f(*args, **kwargs)
     return decorated
-
-def generate_ai_response_llama(query, context_text):
-    try:
-        prompt = (
-            f"Answer this question based only on the context below. "
-            f"If the answer is not relevant to the context or not found, respond: 'Sorry, not found'.\n\n"
-            f"Context:\n{context_text}\n\nQuestion:\n{query}"
-        )
-
-        headers = {
-            "Authorization": f"Bearer {TOGETHER_API_KEY}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "model": "meta-llama/Llama-3-70b-chat-hf",
-            "max_tokens": 512,
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt}
-            ]
-        }
-
-        response = requests.post("https://api.together.xyz/v1/chat/completions", json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        reply = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        return reply if reply else "Sorry, not found"
-    except Exception as e:
-        return "Sorry, not found"
 
 @app.route('/scrape', methods=['GET', 'POST'])
 @requires_auth
@@ -86,32 +54,88 @@ def scrape():
         if content_type not in ('raw', 'beautify', 'ai'):
             return jsonify({
                 "status": "error",
-                "error": "Invalid type parameter. Use 'raw', 'beautify', or 'ai'"
+                "error": "Invalid type parameter. Use 'raw', 'beautify' or 'ai'"
             }), 400
 
-        result = scrape_website(url, 'beautify' if content_type == 'ai' else content_type)
-
-        if result["status"] == "error":
-            return jsonify(result), 500
-
+        # Handle AI flow separately
         if content_type == 'ai':
             if not user_query.strip():
                 return jsonify({
                     "status": "error",
-                    "error": "Missing 'user_query' parameter for type 'ai'"
+                    "error": "user_query parameter is required for type='ai'"
                 }), 400
 
-            context_parts = []
-            for section in result['data']['sections']:
-                heading = section.get("heading", {}).get("text", "")
-                contents = section.get("content", [])
-                if heading:
-                    context_parts.append(heading)
-                context_parts.extend(contents)
-            context_text = "\n".join(context_parts)
+            result = scrape_website(url, 'beautify')
 
-            ai_response = generate_ai_response_llama(user_query, context_text)
-            result["ai_response"] = ai_response
+            if result["status"] == "error":
+                return jsonify(result), 500
+
+            data = result.get("data", {})
+            sections = data.get("sections", []) if isinstance(data, dict) else []
+
+            combined_text = ""
+            for section in sections:
+                heading = section.get("heading", {}).get("text", "")
+                content = " ".join(section.get("content", []))
+                combined_text += f"{heading}\n{content}\n"
+
+            if not combined_text.strip():
+                return jsonify({
+                    "status": "success",
+                    "type": "ai",
+                    "url": url,
+                    "ai_response": "Sorry, not found"
+                })
+
+            llama_prompt = f"""
+You are a helpful assistant. Using the following content extracted from a website, answer the user query as clearly and concisely as possible.
+If the answer is not directly found or relevant, respond with: "Sorry, not found".
+
+### Website Content:
+{combined_text}
+
+### User Question:
+{user_query}
+
+### Answer:
+"""
+
+            headers = {
+                "Authorization": "Bearer YOUR_TOGETHER_API_KEY",  # <-- Replace this
+                "Content-Type": "application/json"
+            }
+
+            payload = {
+                "model": "meta-llama/Llama-3-8b-chat-hf",
+                "max_tokens": 300,
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "stop": ["</s>"],
+                "messages": [
+                    {"role": "user", "content": llama_prompt}
+                ]
+            }
+
+            response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload, timeout=20)
+
+            if response.status_code == 200:
+                ai_text = response.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                ai_text = ai_text.strip() or "Sorry, not found"
+            else:
+                ai_text = "Sorry, not found"
+
+            return jsonify({
+                "status": "success",
+                "type": "ai",
+                "url": url,
+                "ai_response": ai_text
+            })
+
+        # Handle existing raw/beautify
+        result = scrape_website(url, content_type)
+
+        if result["status"] == "error":
+            return jsonify(result), 500
 
         return jsonify(result)
 
