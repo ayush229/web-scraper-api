@@ -109,14 +109,27 @@ Answer the query in a natural and informative way. If no answer is found, say: "
                     "status": "success",
                     "url": url,
                     "type": "crawl_ai",
-                    "ai_response": ai_response
+                    "ai_response": ai_response,
+                    "pages": [
+                        {
+                            "url": page["url"],
+                            "sections": page.get("sections")
+                        }
+                        for page in crawl_result["data"]
+                    ]
                 })
 
             return jsonify({
                 "status": "success",
                 "url": url,
                 "type": content_type,
-                "pages": crawl_result["data"]
+                "pages": [
+                    {
+                        "url": page["url"],
+                        "sections": page.get("sections")
+                    }
+                    for page in crawl_result["data"]
+                ]
             })
 
         # Handle normal raw/beautify/ai
