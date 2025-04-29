@@ -109,8 +109,7 @@ Answer the query in a natural and informative way. If no answer is found, say: "
                     "status": "success",
                     "url": url,
                     "type": "crawl_ai",
-                    "ai_response": ai_response,
-                    "pages": crawl_result["data"]  # Optionally, you can remove this to hide crawled data
+                    "ai_response": ai_response
                 })
 
             return jsonify({
