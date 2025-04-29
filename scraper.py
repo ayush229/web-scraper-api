@@ -1,185 +1,106 @@
-from bs4 import BeautifulSoup, FeatureNotFound
 import requests
-import re
+from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from together import Together
 
-# Init Together AI client (make sure your key is set via environment variable or replace below)
-together = Together(api_key="1d816a7d90f37b0a98395538ddd6737419f8cbeee0e1986836d7846591ab6195")
+def scrape_website(url, mode='beautify'):
+    try:
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.text, 'html.parser')
 
-def clean_text(text):
-    if not text:
-        return ""
-    text = re.sub(r'&\w+;|[\xa0\u200b]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def organize_content_by_headings(soup, base_url):
-    sections = []
-    current_section = None
-
-    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'img', 'a']):
-        if element.name.startswith('h'):
-            if current_section:
-                sections.append(current_section)
-            current_section = {
-                "heading": {
-                    "level": int(element.name[1]),
-                    "text": clean_text(element.get_text())
-                },
-                "content": [],
-                "images": [],
-                "links": []
+        if mode == 'raw':
+            return {
+                "status": "success",
+                "data": soup.get_text()
             }
-        else:
-            if not current_section:
-                current_section = {
-                    "heading": None,
-                    "content": [],
-                    "images": [],
-                    "links": []
+
+        # beautify
+        structured = []
+        for section in soup.find_all(['section', 'div']):
+            heading_tag = section.find(['h1', 'h2', 'h3'])
+            paragraphs = section.find_all(['p', 'li'])
+
+            section_data = {
+                "heading": {"text": heading_tag.get_text(strip=True)} if heading_tag else {},
+                "content": [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
+            }
+
+            if section_data["heading"] or section_data["content"]:
+                structured.append(section_data)
+
+        return {
+            "status": "success",
+            "data": {
+                "url": url,
+                "sections": structured
+            }
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": f"Scrape failed: {str(e)}"
+        }
+
+
+def crawl_website(base_url, mode='beautify', max_pages=5):
+    try:
+        visited = set()
+        to_visit = [base_url]
+        pages_data = []
+
+        while to_visit and len(visited) < max_pages:
+            current_url = to_visit.pop(0)
+            if current_url in visited:
+                continue
+            visited.add(current_url)
+
+            try:
+                res = requests.get(current_url, timeout=10)
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, 'html.parser')
+            except Exception:
+                continue
+
+            if mode == 'raw':
+                pages_data.append({
+                    "url": current_url,
+                    "content": soup.get_text()
+                })
+                continue
+
+            # beautify
+            page_sections = []
+            for section in soup.find_all(['section', 'div']):
+                heading_tag = section.find(['h1', 'h2', 'h3'])
+                paragraphs = section.find_all(['p', 'li'])
+
+                section_data = {
+                    "heading": {"text": heading_tag.get_text(strip=True)} if heading_tag else {},
+                    "content": [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
                 }
 
-            if element.name in ['p', 'ul', 'ol']:
-                text = clean_text(element.get_text())
-                if text:
-                    current_section["content"].append(text)
-            elif element.name == 'img' and element.get('src'):
-                current_section["images"].append({
-                    "url": urljoin(base_url, element['src']),
-                    "alt": clean_text(element.get('alt', ''))
-                })
-            elif element.name == 'a' and element.get('href'):
-                if not element['href'].startswith(('#', 'javascript:')):
-                    current_section["links"].append({
-                        "url": urljoin(base_url, element['href']),
-                        "text": clean_text(element.get_text())
-                    })
+                if section_data["heading"] or section_data["content"]:
+                    page_sections.append(section_data)
 
-    if current_section:
-        sections.append(current_section)
+            pages_data.append({
+                "url": current_url,
+                "sections": page_sections
+            })
 
-    return sections
-
-def extract_raw_content(soup, base_url):
-    return {
-        "raw_html": str(soup),
-        "images": [urljoin(base_url, img['src']) 
-                   for img in soup.find_all('img') if img.get('src')],
-        "links": [urljoin(base_url, a['href']) 
-                  for a in soup.find_all('a', href=True) 
-                  if not a['href'].startswith(('#', 'javascript:'))]
-    }
-
-def extract_beautified_content(soup, base_url):
-    content = {
-        "metadata": {
-            "title": clean_text(soup.title.string if soup.title else ""),
-            "description": clean_text(soup.find('meta', attrs={'name': 'description'})['content']) 
-                          if soup.find('meta', attrs={'name': 'description'}) else ""
-        },
-        "sections": organize_content_by_headings(soup, base_url)
-    }
-    return content
-
-def scrape_website(url, content_type='beautify'):
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-
-        try:
-            soup = BeautifulSoup(response.content, 'html.parser')
-        except FeatureNotFound:
-            return {
-                "status": "error",
-                "url": url,
-                "error": "HTML parser not found or failed"
-            }
-
-        for element in soup(['script', 'style', 'noscript']):
-            element.decompose()
-
-        if content_type == 'raw':
-            result = extract_raw_content(soup, url)
-        else:
-            result = extract_beautified_content(soup, url)
+            # extract links
+            for a_tag in soup.find_all('a', href=True):
+                full_url = urljoin(base_url, a_tag['href'])
+                if full_url.startswith(base_url) and full_url not in visited and len(visited) + len(to_visit) < max_pages:
+                    to_visit.append(full_url)
 
         return {
             "status": "success",
-            "url": url,
-            "type": content_type,
-            "data": result
-        }
-
-    except requests.exceptions.Timeout:
-        return {
-            "status": "error",
-            "url": url,
-            "error": "Request timed out. Please try again later."
-        }
-    except requests.exceptions.RequestException as e:
-        return {
-            "status": "error",
-            "url": url,
-            "error": f"Request error: {str(e)}"
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "url": url,
-            "error": f"Unexpected error: {str(e)}"
-        }
-
-# ✅ NOW IMPLEMENTED
-def crawl_website(url, user_query):
-    try:
-        scraped = scrape_website(url, content_type='beautify')
-        if scraped['status'] != 'success':
-            return scraped
-
-        sections = scraped['data']['sections']
-        full_text = "\n\n".join(
-            (s.get("heading", {}).get("text", "") or "") + "\n" + "\n".join(s["content"])
-            for s in sections
-        )
-
-        if not full_text.strip():
-            return {
-                "status": "error",
-                "url": url,
-                "error": "Unable to extract meaningful text content."
-            }
-
-        prompt = f"""You are a helpful assistant. Based on the following website content, answer this question:
-Website Content:
-\"\"\"
-{full_text[:5000]}
-\"\"\"
-
-Question: {user_query}
-Answer:"""
-
-        response = together.chat.completions.create(
-            model="mistral-7b-instruct",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        )
-
-        return {
-            "status": "success",
-            "url": url,
-            "type": "ai",
-            "query": user_query,
-            "answer": response.choices[0].message.content
+            "data": pages_data
         }
 
     except Exception as e:
         return {
             "status": "error",
-            "url": url,
-            "error": f"AI generation error: {str(e)}"
+            "error": f"Crawling failed: {str(e)}"
         }
