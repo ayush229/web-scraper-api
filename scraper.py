@@ -1,106 +1,107 @@
-import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+import requests
+from urllib.parse import urljoin, urlparse
 
-def scrape_website(url, mode='beautify'):
+
+def scrape_website(url, type="beautify"):
     try:
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
-        soup = BeautifulSoup(res.text, 'html.parser')
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+    except Exception as e:
+        return {"status": "error", "error": f"Request failed: {str(e)}"}
 
-        if mode == 'raw':
-            return {
-                "status": "success",
-                "data": soup.get_text()
-            }
+    soup = BeautifulSoup(response.text, 'html.parser')
 
-        # beautify
-        structured = []
-        for section in soup.find_all(['section', 'div']):
-            heading_tag = section.find(['h1', 'h2', 'h3'])
-            paragraphs = section.find_all(['p', 'li'])
-
-            section_data = {
-                "heading": {"text": heading_tag.get_text(strip=True)} if heading_tag else {},
-                "content": [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
-            }
-
-            if section_data["heading"] or section_data["content"]:
-                structured.append(section_data)
-
+    if type == "raw":
         return {
             "status": "success",
-            "data": {
-                "url": url,
-                "sections": structured
-            }
+            "url": url,
+            "type": "raw",
+            "data": soup.prettify()
         }
 
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": f"Scrape failed: {str(e)}"
+    # Structured content with headings, paragraphs, image and link info
+    content = []
+    sections = soup.find_all(['section', 'div', 'article'])
+    for sec in sections:
+        section_data = {
+            "heading": None,
+            "content": [],
+            "images": [],
+            "links": []
         }
 
+        heading = sec.find(['h1', 'h2', 'h3', 'h4', 'h5'])
+        if heading:
+            section_data["heading"] = {"tag": heading.name, "text": heading.get_text(strip=True)}
 
-def crawl_website(base_url, mode='beautify', max_pages=5):
-    try:
-        visited = set()
-        to_visit = [base_url]
-        pages_data = []
+        paragraphs = sec.find_all(['p', 'li'])
+        for p in paragraphs:
+            text = p.get_text(strip=True)
+            if text:
+                section_data["content"].append(text)
 
-        while to_visit and len(visited) < max_pages:
-            current_url = to_visit.pop(0)
-            if current_url in visited:
-                continue
-            visited.add(current_url)
+        for img in sec.find_all("img"):
+            src = img.get("src")
+            if src:
+                section_data["images"].append(urljoin(url, src))
 
-            try:
-                res = requests.get(current_url, timeout=10)
-                res.raise_for_status()
-                soup = BeautifulSoup(res.text, 'html.parser')
-            except Exception:
-                continue
+        for a in sec.find_all("a"):
+            href = a.get("href")
+            if href:
+                section_data["links"].append(urljoin(url, href))
 
-            if mode == 'raw':
-                pages_data.append({
+        if section_data["heading"] or section_data["content"] or section_data["images"] or section_data["links"]:
+            content.append(section_data)
+
+    return {
+        "status": "success",
+        "url": url,
+        "type": "beautify",
+        "data": {
+            "sections": content
+        }
+    }
+
+
+def crawl_website(base_url, type="beautify", max_pages=10):
+    visited = set()
+    to_visit = [base_url]
+    domain = urlparse(base_url).netloc
+
+    all_data = []
+    page_count = 0
+
+    while to_visit and page_count < max_pages:
+        current_url = to_visit.pop(0)
+        if current_url in visited:
+            continue
+
+        visited.add(current_url)
+        try:
+            result = scrape_website(current_url, type)
+            if result["status"] == "success":
+                page_data = {
                     "url": current_url,
-                    "content": soup.get_text()
-                })
-                continue
-
-            # beautify
-            page_sections = []
-            for section in soup.find_all(['section', 'div']):
-                heading_tag = section.find(['h1', 'h2', 'h3'])
-                paragraphs = section.find_all(['p', 'li'])
-
-                section_data = {
-                    "heading": {"text": heading_tag.get_text(strip=True)} if heading_tag else {},
-                    "content": [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
+                    "sections": result["data"]["sections"] if "sections" in result["data"] else result["data"]
                 }
+                all_data.append(page_data)
 
-                if section_data["heading"] or section_data["content"]:
-                    page_sections.append(section_data)
+                # Extract and queue internal links
+                for section in page_data["sections"]:
+                    links = section.get("links", [])
+                    for link in links:
+                        parsed = urlparse(link)
+                        if parsed.netloc == domain and link not in visited and link not in to_visit:
+                            to_visit.append(link)
 
-            pages_data.append({
-                "url": current_url,
-                "sections": page_sections
-            })
+                page_count += 1
+        except Exception as e:
+            continue
 
-            # extract links
-            for a_tag in soup.find_all('a', href=True):
-                full_url = urljoin(base_url, a_tag['href'])
-                if full_url.startswith(base_url) and full_url not in visited and len(visited) + len(to_visit) < max_pages:
-                    to_visit.append(full_url)
-
-        return {
-            "status": "success",
-            "data": pages_data
-        }
-
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": f"Crawling failed: {str(e)}"
-        }
+    return {
+        "status": "success",
+        "url": base_url,
+        "type": f"crawl_{type}",
+        "data": all_data
+    }
