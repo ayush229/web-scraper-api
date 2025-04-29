@@ -62,7 +62,7 @@ def extract_text_from_section(section):
 def scrape():
     try:
         if request.method == 'GET':
-            url = request.args.get('url')
+            urls_str = request.args.get('url')
             content_type = request.args.get('type', 'beautify')
             user_query = request.args.get('user_query', '')
         else:
@@ -70,128 +70,46 @@ def scrape():
                 data = request.get_json(force=True) or {}
             except Exception:
                 data = {}
-            url = data.get('url', '')
+            urls_str = data.get('url', '')
             content_type = data.get('type', 'beautify')
             user_query = data.get('user_query', '')
 
-        if not url:
+        if not urls_str:
             return jsonify({
                 "status": "error",
                 "error": "URL parameter is required"
             }), 400
 
-        if content_type not in (
-            'raw', 'beautify', 'ai',
-            'crawl_raw', 'crawl_beautify', 'crawl_ai'
-        ):
-            return jsonify({
-                "status": "error",
-                "error": "Invalid type parameter."
-            }), 400
+        urls = [url.strip() for url in urls_str.split(',') if url.strip()]
 
-        # Handle crawling types with extended logic and AI optimization
-        if content_type.startswith("crawl_"):
-            crawl_type = content_type.replace("crawl_", "")
-            initial_scrape = scrape_website(url, 'beautify')
-            if initial_scrape["status"] == "error":
-                return jsonify(initial_scrape), 500
+        if content_type in ['raw', 'beautify']:
+            all_results = []
+            for url in urls:
+                result = scrape_website(url, content_type)
+                if result["status"] == "error":
+                    return jsonify(result), 500
+                all_results.append({"url": url, "data": result["data"]})
+            return jsonify(all_results)
 
-            unique_links = set()
-            if "sections" in initial_scrape["data"]:
-                for section in initial_scrape["data"]["sections"]:
-                    for link in section.get("links", []):
-                        unique_links.add(link)
-
-            all_page_content = {}
-            all_page_content[url] = initial_scrape["data"]
-            visited_urls = {url}
-
-            for link in list(unique_links):
-                if link not in visited_urls:
-                    page_result = scrape_website(link, 'beautify' if crawl_type == 'ai' else crawl_type)
-                    if page_result["status"] == "success":
-                        all_page_content[link] = page_result["data"]
-                        visited_urls.add(link)
-
-            if crawl_type == "ai":
-                relevant_content = []
-                query_words = user_query.lower().split()
-
-                for page_url, page_data in all_page_content.items():
-                    if "sections" in page_data:
-                        for section in page_data["sections"]:
-                            section_text_lower = extract_text_from_section(section)
-                            for word in query_words:
-                                if word in section_text_lower:
-                                    relevant_content.append(section)
-                                    break # Move to the next section once a match is found
-
-                combined_relevant_text = ""
-                for section in relevant_content:
-                    if section.get("heading") and section["heading"].get("text"):
-                        combined_relevant_text += f"\n\n{section['heading']['text']}"
-                    for para in section.get("content", []):
-                        combined_relevant_text += f"\n{para}"
-
-                prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content.
-
-User query: "{user_query}"
-
-Website content:
-\"\"\"{combined_relevant_text}\"\"\"
-
-Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
-Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
-"""
-                ai_response = ask_llama(prompt)
-                if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                    ai_response = "Sorry, not found"
-                return jsonify({
-                    "status": "success",
-                    "url": url,
-                    "type": "crawl_ai",
-                    "ai_response": ai_response
-                })
-            elif crawl_type in ["raw", "beautify"]:
-                crawl_data = []
-                for page_url, page_data in all_page_content.items():
-                    crawl_data.append({"url": page_url, "data": page_data})
-                return jsonify({
-                    "status": "success",
-                    "url": url,
-                    "type": content_type,
-                    "data": crawl_data
-                })
-
-        # Handle normal raw/beautify/ai
-        result = scrape_website(url, 'beautify' if content_type == 'ai' else content_type)
-
-        if result["status"] == "error":
-            return jsonify(result), 500
-
-        if content_type == 'ai':
-            scraped_text = ""
-            try:
+        elif content_type == 'ai':
+            combined_text = ""
+            for url in urls:
+                result = scrape_website(url, 'beautify')
+                if result["status"] == "error":
+                    return jsonify(result), 500
                 if "sections" in result["data"]:
-                    sections = result["data"]["sections"]
-                    for sec in sections:
+                    for sec in result["data"]["sections"]:
                         if sec.get("heading") and sec["heading"].get("text"):
-                            scraped_text += f"\n\n{sec['heading']['text']}"
+                            combined_text += f"\n\n{sec['heading']['text']}"
                         for para in sec.get("content", []):
-                            scraped_text += f"\n{para}"
-            except Exception as e:
-                print(f"Content parsing failed: {e}")
-                return jsonify({
-                    "status": "error",
-                    "error": "Failed to parse structured content for AI query"
-                }), 500
+                            combined_text += f"\n{para}"
 
-            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content.
+            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content from multiple URLs.
 
 User query: "{user_query}"
 
 Website content:
-\"\"\"{scraped_text}\"\"\"
+\"\"\"{combined_text}\"\"\"
 
 Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
 Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
@@ -199,15 +117,80 @@ Do not include introductory phrases like "To find...", "According to...", or sim
             ai_response = ask_llama(prompt)
             if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
                 ai_response = "Sorry, not found"
-
             return jsonify({
                 "status": "success",
-                "url": url,
                 "type": "ai",
                 "ai_response": ai_response
             })
 
-        return jsonify(result)
+        elif content_type == "crawl_ai":
+            all_crawled_content = {}
+            for url in urls:
+                crawl_result = crawl_website(url, 'beautify')
+                if crawl_result["status"] == "success":
+                    all_crawled_content[url] = crawl_result["data"]
+                else:
+                    return jsonify(crawl_result), 500
+
+            relevant_content = []
+            query_words = user_query.lower().split()
+
+            for base_url, pages_data in all_crawled_content.items():
+                for page in pages_data:
+                    if "sections" in page:
+                        for section in page["sections"]:
+                            section_text_lower = extract_text_from_section(section)
+                            for word in query_words:
+                                if word in section_text_lower:
+                                    relevant_content.append(section)
+                                    break
+
+            combined_relevant_text = ""
+            for section in relevant_content:
+                if section.get("heading") and section["heading"].get("text"):
+                    combined_relevant_text += f"\n\n{section['heading']['text']}"
+                for para in section.get("content", []):
+                    combined_relevant_text += f"\n{para}"
+
+            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the relevant parts of website content crawled from multiple URLs.
+
+User query: "{user_query}"
+
+Relevant website content:
+\"\"\"{combined_relevant_text}\"\"\"
+
+Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
+Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
+"""
+            ai_response = ask_llama(prompt)
+            if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
+                ai_response = "Sorry, not found"
+            return jsonify({
+                "status": "success",
+                "type": "crawl_ai",
+                "ai_response": ai_response
+            })
+
+        elif content_type.startswith("crawl_"): # crawl_raw, crawl_beautify for multiple URLs
+            all_crawl_results = []
+            crawl_type = content_type.replace("crawl_", "")
+            for url in urls:
+                crawl_result = crawl_website(url, crawl_type)
+                if crawl_result["status"] == "success":
+                    all_crawl_results.extend(crawl_result["data"])
+                else:
+                    return jsonify(crawl_result), 500
+            return jsonify({
+                "status": "success",
+                "type": content_type,
+                "data": all_crawl_results
+            })
+
+        else:
+            return jsonify({
+                "status": "error",
+                "error": "Invalid type parameter."
+            }), 400
 
     except Exception as e:
         return jsonify({
