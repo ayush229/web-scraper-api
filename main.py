@@ -133,10 +133,15 @@ def scrape():
                     for para in section.get("content", []):
                         combined_relevant_text += f"\n{para}"
 
-                prompt = f"""You are an intelligent assistant helping users get answers from relevant parts of website content.
+                prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content.
+
 User query: "{user_query}"
-Relevant website content: \"\"\"{combined_relevant_text}\"\"\"
-Answer the query in a natural and informative way. If no answer is found based on the provided content, say: "Sorry, not found."
+
+Website content:
+\"\"\"{combined_relevant_text}\"\"\"
+
+Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
+Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
 """
                 ai_response = ask_llama(prompt)
                 if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
@@ -181,10 +186,15 @@ Answer the query in a natural and informative way. If no answer is found based o
                     "error": "Failed to parse structured content for AI query"
                 }), 500
 
-            prompt = f"""You are an intelligent assistant helping users get answers from a website's text.
+            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content.
+
 User query: "{user_query}"
-Website content: \"\"\"{scraped_text}\"\"\"
-Answer the query in a natural and informative way. If no answer is found, say: "Sorry, not found."
+
+Website content:
+\"\"\"{scraped_text}\"\"\"
+
+Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
+Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
 """
             ai_response = ask_llama(prompt)
             if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
