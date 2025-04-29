@@ -6,6 +6,7 @@ from scraper import scrape_website, crawl_website
 import logging
 import os
 from together import Together
+from urllib.parse import urlparse, urljoin
 
 app = Flask(__name__)
 
@@ -57,6 +58,42 @@ def extract_text_from_section(section):
         text += f"{para} "
     return text.strip().lower()
 
+def process_crawl(base_url, crawl_type):
+    visited = set()
+    to_visit = [base_url]
+    all_data = []
+    domain = urlparse(base_url).netloc
+
+    while to_visit:
+        current_url = to_visit.pop(0)
+        if current_url in visited:
+            continue
+        visited.add(current_url)
+
+        result = scrape_website(current_url, 'beautify')
+        if result["status"] == "success":
+            page_data = {"url": current_url, "content": []}
+            if "sections" in result["data"]:
+                for section in result["data"]["sections"]:
+                    section_content = {"heading": section.get("heading"), "paragraphs": section.get("content", [])}
+                    page_data["content"].append(section_content)
+                    if crawl_type != "crawl_raw":
+                        for link in section.get("links", []):
+                            parsed_link = urlparse(link)
+                            absolute_link = urljoin(current_url, parsed_link.path)
+                            if parsed_link.netloc == domain or parsed_link.netloc == '':
+                                clean_link = absolute_link.rstrip('/')
+                                if clean_link not in visited and clean_link not in to_visit:
+                                    to_visit.append(clean_link)
+            elif crawl_type == "crawl_raw":
+                page_data["raw_data"] = result["data"]
+            all_data.append(page_data)
+        else:
+            print(f"Error scraping {current_url} during crawl: {result['error']}")
+            all_data.append({"url": current_url, "error": result["error"]}) # Include error in response
+
+    return all_data
+
 @app.route('/scrape', methods=['GET', 'POST'])
 @requires_auth
 def scrape():
@@ -87,8 +124,9 @@ def scrape():
             for url in urls:
                 result = scrape_website(url, content_type)
                 if result["status"] == "error":
-                    return jsonify(result), 500
-                all_results.append({"url": url, "data": result["data"]})
+                    all_results.append({"url": url, "error": result["error"]})
+                else:
+                    all_results.append({"url": url, "data": result["data"]})
             return jsonify(all_results)
 
         elif content_type == 'ai':
@@ -96,8 +134,8 @@ def scrape():
             for url in urls:
                 result = scrape_website(url, 'beautify')
                 if result["status"] == "error":
-                    return jsonify(result), 500
-                if "sections" in result["data"]:
+                    print(f"Error scraping {url} for AI: {result['error']}")
+                elif "sections" in result["data"]:
                     for sec in result["data"]["sections"]:
                         if sec.get("heading") and sec["heading"].get("text"):
                             combined_text += f"\n\n{sec['heading']['text']}"
@@ -123,68 +161,54 @@ Do not include introductory phrases like "To find...", "According to...", or sim
                 "ai_response": ai_response
             })
 
-        elif content_type == "crawl_ai":
-            all_crawled_content = {}
+        elif content_type.startswith("crawl_"):
+            all_crawl_data = []
+            crawl_type = content_type
             for url in urls:
-                crawl_result = crawl_website(url, 'beautify')
-                if crawl_result["status"] == "success":
-                    all_crawled_content[url] = crawl_result["data"]
-                else:
-                    return jsonify(crawl_result), 500
+                crawl_results = process_crawl(url, crawl_type)
+                all_crawl_data.extend(crawl_results)
 
-            relevant_content = []
-            query_words = user_query.lower().split()
+            if crawl_type == "crawl_beautify":
+                formatted_crawl_data = []
+                for item in all_crawl_data:
+                    if "content" in item:
+                        formatted_crawl_data.append({"url": item["url"], "content": item["content"]})
+                    elif "error" in item:
+                        formatted_crawl_data.append({"url": item["url"], "error": item["error"]})
+                return jsonify({"status": "success", "type": crawl_type, "data": formatted_crawl_data})
+            elif crawl_type == "crawl_raw":
+                formatted_crawl_data = []
+                for item in all_crawl_data:
+                    if "raw_data" in item:
+                        formatted_crawl_data.append({"url": item["url"], "data": item["raw_data"]})
+                    elif "error" in item:
+                        formatted_crawl_data.append({"url": item["url"], "error": item["error"]})
+                return jsonify({"status": "success", "type": crawl_type, "data": formatted_crawl_data})
+            elif crawl_type == "crawl_ai":
+                all_text_content = ""
+                for item in all_crawl_data:
+                    if "content" in item:
+                        for section in item["content"]:
+                            if section.get("heading") and section["heading"].get("text"):
+                                all_text_content += f"\n\n{section['heading']['text']}"
+                            for para in section.get("paragraphs", []):
+                                all_text_content += f"\n{para}"
 
-            for base_url, pages_data in all_crawled_content.items():
-                for page in pages_data:
-                    if "sections" in page:
-                        for section in page["sections"]:
-                            section_text_lower = extract_text_from_section(section)
-                            for word in query_words:
-                                if word in section_text_lower:
-                                    relevant_content.append(section)
-                                    break
-
-            combined_relevant_text = ""
-            for section in relevant_content:
-                if section.get("heading") and section["heading"].get("text"):
-                    combined_relevant_text += f"\n\n{section['heading']['text']}"
-                for para in section.get("content", []):
-                    combined_relevant_text += f"\n{para}"
-
-            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the relevant parts of website content crawled from multiple URLs.
+                prompt = f"""You are an intelligent assistant. Use the following website content to answer the user's query directly and concisely.
 
 User query: "{user_query}"
 
-Relevant website content:
-\"\"\"{combined_relevant_text}\"\"\"
+Website content:
+\"\"\"{all_text_content}\"\"\"
 
-Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
-Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
+Answer the user's query directly. If the answer is not found or the query is irrelevant, respond with: "Sorry, not found." Do not use introductory phrases.
 """
-            ai_response = ask_llama(prompt)
-            if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                ai_response = "Sorry, not found"
-            return jsonify({
-                "status": "success",
-                "type": "crawl_ai",
-                "ai_response": ai_response
-            })
-
-        elif content_type.startswith("crawl_"): # crawl_raw, crawl_beautify for multiple URLs
-            all_crawl_results = []
-            crawl_type = content_type.replace("crawl_", "")
-            for url in urls:
-                crawl_result = crawl_website(url, crawl_type)
-                if crawl_result["status"] == "success":
-                    all_crawl_results.extend(crawl_result["data"])
-                else:
-                    return jsonify(crawl_result), 500
-            return jsonify({
-                "status": "success",
-                "type": content_type,
-                "data": all_crawl_results
-            })
+                ai_response = ask_llama(prompt)
+                if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
+                    ai_response = "Sorry, not found"
+                return jsonify({"status": "success", "type": crawl_type, "ai_response": ai_response})
+            else:
+                return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
 
         else:
             return jsonify({
