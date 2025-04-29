@@ -61,10 +61,10 @@ def extract_raw_content(soup, base_url):
     return {
         "raw_html": str(soup),
         "images": [urljoin(base_url, img['src']) 
-                  for img in soup.find_all('img') if img.get('src')],
+                   for img in soup.find_all('img') if img.get('src')],
         "links": [urljoin(base_url, a['href']) 
-                 for a in soup.find_all('a', href=True) 
-                 if not a['href'].startswith(('#', 'javascript:'))]
+                  for a in soup.find_all('a', href=True) 
+                  if not a['href'].startswith(('#', 'javascript:'))]
     }
 
 def extract_beautified_content(soup, base_url):
@@ -129,3 +129,10 @@ def scrape_website(url, content_type='beautify'):
             "url": url,
             "error": f"Unexpected error: {str(e)}"
         }
+
+# Placeholder if crawl_website is accidentally imported elsewhere
+def crawl_website(*args, **kwargs):
+    return {
+        "status": "error",
+        "error": "crawl_website() is not implemented."
+    }
