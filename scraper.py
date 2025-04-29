@@ -1,124 +1,78 @@
-from bs4 import BeautifulSoup
-import requests
-import re
-from urllib.parse import urljoin
+from flask import Flask, request, jsonify, make_response
+from functools import wraps
+from scraper import scrape_website
+import logging
+import os
+from dotenv import load_dotenv
+from flask_cors import CORS
 
-def clean_text(text):
-    """Clean and normalize text content"""
-    if not text:
-        return ""
-    text = re.sub(r'&\w+;|[\xa0\u200b]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+# Load environment variables from .env
+load_dotenv()
 
-def organize_content_by_headings(soup, base_url):
-    """Organize content hierarchically under headings"""
-    sections = []
-    current_section = None
-    
-    # Find all heading elements and content between them
-    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'img', 'a']):
-        if element.name.startswith('h'):
-            # Save previous section if exists
-            if current_section:
-                sections.append(current_section)
-            
-            # Start new section
-            current_section = {
-                "heading": {
-                    "level": int(element.name[1]),
-                    "text": clean_text(element.get_text())
-                },
-                "content": [],
-                "images": [],
-                "links": []
-            }
-        else:
-            if not current_section:
-                # Content before first heading
-                current_section = {
-                    "heading": None,
-                    "content": [],
-                    "images": [],
-                    "links": []
-                }
-            
-            # Process content elements
-            if element.name in ['p', 'ul', 'ol']:
-                text = clean_text(element.get_text())
-                if text:
-                    current_section["content"].append(text)
-            elif element.name == 'img' and element.get('src'):
-                current_section["images"].append({
-                    "url": urljoin(base_url, element['src']),
-                    "alt": clean_text(element.get('alt', ''))
-                })
-            elif element.name == 'a' and element.get('href'):
-                if not element['href'].startswith(('#', 'javascript:')):
-                    current_section["links"].append({
-                        "url": urljoin(base_url, element['href']),
-                        "text": clean_text(element.get_text())
-                    })
-    
-    # Add the last section
-    if current_section:
-        sections.append(current_section)
-    
-    return sections
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
-def extract_raw_content(soup, base_url):
-    """Extract completely raw content with all HTML"""
-    return {
-        "raw_html": str(soup),
-        "images": [urljoin(base_url, img['src']) 
-                  for img in soup.find_all('img') if img.get('src')],
-        "links": [urljoin(base_url, a['href']) 
-                 for a in soup.find_all('a', href=True) 
-                 if not a['href'].startswith(('#', 'javascript:'))]
-    }
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 
-def extract_beautified_content(soup, base_url):
-    """Extract cleaned and structured content organized by headings"""
-    content = {
-        "metadata": {
-            "title": clean_text(soup.title.string if soup.title else ""),
-            "description": clean_text(soup.find('meta', attrs={'name': 'description'})['content']) 
-                          if soup.find('meta', attrs={'name': 'description'}) else ""
-        },
-        "sections": organize_content_by_headings(soup, base_url)
-    }
-    return content
+# Authentication credentials from environment
+AUTH_USERNAME = os.getenv("AUTH_USERNAME", "admin")
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "password")
 
-def scrape_website(url, content_type='beautify'):
+def check_auth(username, password):
+    return username == AUTH_USERNAME and password == AUTH_PASSWORD
+
+def authenticate():
+    return make_response(
+        jsonify({"error": "Authentication required"}),
+        401,
+        {'WWW-Authenticate': 'Basic realm="Login Required"'}
+    )
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/scrape', methods=['GET', 'POST'])
+@requires_auth
+def scrape():
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Remove unwanted elements
-        for element in soup(['script', 'style', 'noscript']):
-            element.decompose()
-
-        if content_type == 'raw':
-            result = extract_raw_content(soup, url)
+        if request.method == 'GET':
+            url = request.args.get('url')
+            content_type = request.args.get('type', 'beautify')
         else:
-            result = extract_beautified_content(soup, url)
+            data = request.get_json()
+            url = data.get('url')
+            content_type = data.get('type', 'beautify')
 
-        return {
-            "status": "success",
-            "url": url,
-            "type": content_type,
-            "data": result
-        }
+        if not url:
+            return jsonify({
+                "status": "error",
+                "error": "URL parameter is required"
+            }), 400
+
+        if content_type not in ('raw', 'beautify'):
+            return jsonify({
+                "status": "error",
+                "error": "Invalid type parameter. Use 'raw' or 'beautify'"
+            }), 400
+
+        result = scrape_website(url, content_type)
+
+        status_code = 500 if result["status"] == "error" else 200
+        return jsonify(result), status_code
 
     except Exception as e:
-        return {
+        logging.exception("Unexpected server error")
+        return jsonify({
             "status": "error",
-            "url": url,
-            "error": str(e)
-        }
+            "error": f"Internal server error: {str(e)}"
+        }), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
