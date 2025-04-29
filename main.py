@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, make_response
 from functools import wraps
-from scraper import scrape_website
+from scraper import scrape_website, crawl_website  # extended import
 import logging
 import os
 from together import Together  # Importing Together Python client
@@ -35,12 +35,10 @@ def requires_auth(f):
 
 def ask_llama(prompt):
     try:
-        # Using the Together client to get the AI response from LLaMA model
         response = client.chat.completions.create(
-            model="meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",  # LLaMA model
+            model="meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
             messages=[{"role": "user", "content": prompt}]
         )
-
         if response.choices:
             return response.choices[0].message.content.strip()
         else:
@@ -72,12 +70,57 @@ def scrape():
                 "error": "URL parameter is required"
             }), 400
 
-        if content_type not in ('raw', 'beautify', 'ai'):
+        if content_type not in (
+            'raw', 'beautify', 'ai',
+            'crawl_raw', 'crawl_beautify', 'crawl_ai'
+        ):
             return jsonify({
                 "status": "error",
-                "error": "Invalid type parameter. Use 'raw', 'beautify' or 'ai'"
+                "error": "Invalid type parameter."
             }), 400
 
+        # Handle crawling types
+        if content_type.startswith("crawl_"):
+            crawl_type = content_type.replace("crawl_", "")
+            crawl_result = crawl_website(url, crawl_type)
+
+            if crawl_result["status"] == "error":
+                return jsonify(crawl_result), 500
+
+            if content_type == "crawl_ai":
+                full_text = ""
+                for page in crawl_result["data"]:
+                    for sec in page["sections"]:
+                        if sec.get("heading") and sec["heading"].get("text"):
+                            full_text += f"\n\n{sec['heading']['text']}"
+                        for para in sec.get("content", []):
+                            full_text += f"\n{para}"
+
+                prompt = f"""You are an intelligent assistant helping users get answers from a website's text.
+User query: "{user_query}"
+Website content: \"\"\"{full_text}\"\"\"
+Answer the query in a natural and informative way. If no answer is found, say: "Sorry, not found."
+"""
+                ai_response = ask_llama(prompt)
+                if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
+                    ai_response = "Sorry, not found"
+
+                return jsonify({
+                    "status": "success",
+                    "url": url,
+                    "type": "crawl_ai",
+                    "ai_response": ai_response,
+                    "pages": crawl_result["data"]
+                })
+
+            return jsonify({
+                "status": "success",
+                "url": url,
+                "type": content_type,
+                "pages": crawl_result["data"]
+            })
+
+        # Handle normal raw/beautify/ai
         result = scrape_website(url, 'beautify' if content_type == 'ai' else content_type)
 
         if result["status"] == "error":
@@ -85,8 +128,6 @@ def scrape():
 
         if content_type == 'ai':
             scraped_text = ""
-
-            # Combine content from sections
             try:
                 sections = result["data"]["sections"]
                 for sec in sections:
@@ -106,7 +147,6 @@ User query: "{user_query}"
 Website content: \"\"\"{scraped_text}\"\"\"
 Answer the query in a natural and informative way. If no answer is found, say: "Sorry, not found."
 """
-
             ai_response = ask_llama(prompt)
             if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
                 ai_response = "Sorry, not found"
