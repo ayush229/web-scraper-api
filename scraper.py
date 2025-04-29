@@ -20,7 +20,7 @@ def scrape_website(url, type="beautify"):
             "data": soup.prettify()
         }
 
-    # Structured content with headings, paragraphs, image and link info
+    # Structured content with headings, paragraphs, images, and links
     content = []
     sections = soup.find_all(['section', 'div', 'article'])
     for sec in sections:
@@ -49,7 +49,8 @@ def scrape_website(url, type="beautify"):
         for a in sec.find_all("a"):
             href = a.get("href")
             if href:
-                section_data["links"].append(urljoin(url, href))
+                joined = urljoin(url, href.split('#')[0])  # Remove hash anchors
+                section_data["links"].append(joined)
 
         if section_data["heading"] or section_data["content"] or section_data["images"] or section_data["links"]:
             content.append(section_data)
@@ -86,17 +87,18 @@ def crawl_website(base_url, type="beautify", max_pages=10):
                     "sections": result["data"]["sections"] if "sections" in result["data"] else result["data"]
                 }
                 all_data.append(page_data)
+                page_count += 1
 
-                # Extract and queue internal links
+                # Only add internal links for future crawling
                 for section in page_data["sections"]:
                     links = section.get("links", [])
                     for link in links:
                         parsed = urlparse(link)
-                        if parsed.netloc == domain and link not in visited and link not in to_visit:
-                            to_visit.append(link)
+                        clean_link = link.rstrip('/')
 
-                page_count += 1
-        except Exception as e:
+                        if (parsed.netloc == domain or parsed.netloc == '') and clean_link not in visited and clean_link not in to_visit:
+                            to_visit.append(clean_link)
+        except Exception:
             continue
 
     return {
