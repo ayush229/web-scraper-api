@@ -1,3 +1,5 @@
+# scraper.py
+
 from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urljoin, urlparse
@@ -7,7 +9,7 @@ def scrape_website(url, type="beautify"):
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         return {"status": "error", "error": f"Request failed: {str(e)}"}
 
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -31,7 +33,7 @@ def scrape_website(url, type="beautify"):
             "links": []
         }
 
-        heading = sec.find(['h1', 'h2', 'h3', 'h4', 'h5'])
+        heading = sec.find(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
         if heading:
             section_data["heading"] = {"tag": heading.name, "text": heading.get_text(strip=True)}
 
@@ -65,11 +67,10 @@ def scrape_website(url, type="beautify"):
     }
 
 
-def crawl_website(base_url, type="beautify", max_pages=10):
+def crawl_website(base_url, type="beautify", max_pages=50):  # Increased default max_pages
     visited = set()
     to_visit = [base_url]
     domain = urlparse(base_url).netloc
-
     all_data = []
     page_count = 0
 
@@ -89,17 +90,20 @@ def crawl_website(base_url, type="beautify", max_pages=10):
                 all_data.append(page_data)
                 page_count += 1
 
-                # Only add internal links for future crawling
-                for section in page_data["sections"]:
-                    links = section.get("links", [])
-                    for link in links:
-                        parsed = urlparse(link)
-                        clean_link = link.rstrip('/')
-
-                        if (parsed.netloc == domain or parsed.netloc == '') and clean_link not in visited and clean_link not in to_visit:
-                            to_visit.append(clean_link)
-        except Exception:
-            continue
+                if "sections" in result["data"]:
+                    for section in result["data"]["sections"]:
+                        links = section.get("links", [])
+                        for link in links:
+                            parsed = urlparse(link)
+                            clean_link = link.rstrip('/')
+                            if (parsed.netloc == domain or parsed.netloc == '') and clean_link not in visited and clean_link not in to_visit:
+                                to_visit.append(clean_link)
+            elif result["status"] == "error":
+                print(f"Error scraping {current_url}: {result['error']}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error processing {current_url}: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred while crawling {current_url}: {e}")
 
     return {
         "status": "success",
