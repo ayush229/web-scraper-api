@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 from together import Together
 
 # Init Together AI client (make sure your key is set via environment variable or replace below)
-together = Together(api_key="your_api_key")
+together = Together(api_key="1d816a7d90f37b0a98395538ddd6737419f8cbeee0e1986836d7846591ab6195")
 
 def clean_text(text):
     if not text:
