@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 def scrape_website(url, type="beautify"):
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=15)  # Increased timeout slightly
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         return {"status": "error", "error": f"Request failed: {str(e)}"}
@@ -67,7 +67,7 @@ def scrape_website(url, type="beautify"):
     }
 
 
-def crawl_website(base_url, type="beautify", max_pages=50):  # Increased default max_pages
+def crawl_website(base_url, type="beautify", max_pages=30):  # Reduced default max_pages
     visited = set()
     to_visit = [base_url]
     domain = urlparse(base_url).netloc
@@ -101,7 +101,7 @@ def crawl_website(base_url, type="beautify", max_pages=50):  # Increased default
             elif result["status"] == "error":
                 print(f"Error scraping {current_url}: {result['error']}")
         except requests.exceptions.RequestException as e:
-            print(f"Error processing {current_url}: {e}")
+            print(f"Network error processing {current_url}: {e}")
         except Exception as e:
             print(f"An unexpected error occurred while crawling {current_url}: {e}")
 
