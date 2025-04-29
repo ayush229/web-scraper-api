@@ -1,78 +1,131 @@
-from flask import Flask, request, jsonify, make_response
-from functools import wraps
-from scraper import scrape_website
-import logging
-import os
-from dotenv import load_dotenv
-from flask_cors import CORS
+from bs4 import BeautifulSoup, FeatureNotFound
+import requests
+import re
+from urllib.parse import urljoin
 
-# Load environment variables from .env
-load_dotenv()
+def clean_text(text):
+    if not text:
+        return ""
+    text = re.sub(r'&\w+;|[\xa0\u200b]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
-app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+def organize_content_by_headings(soup, base_url):
+    sections = []
+    current_section = None
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-
-# Authentication credentials from environment
-AUTH_USERNAME = os.getenv("AUTH_USERNAME", "admin")
-AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "password")
-
-def check_auth(username, password):
-    return username == AUTH_USERNAME and password == AUTH_PASSWORD
-
-def authenticate():
-    return make_response(
-        jsonify({"error": "Authentication required"}),
-        401,
-        {'WWW-Authenticate': 'Basic realm="Login Required"'}
-    )
-
-def requires_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
-            return authenticate()
-        return f(*args, **kwargs)
-    return decorated
-
-@app.route('/scrape', methods=['GET', 'POST'])
-@requires_auth
-def scrape():
-    try:
-        if request.method == 'GET':
-            url = request.args.get('url')
-            content_type = request.args.get('type', 'beautify')
+    for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'img', 'a']):
+        if element.name.startswith('h'):
+            if current_section:
+                sections.append(current_section)
+            current_section = {
+                "heading": {
+                    "level": int(element.name[1]),
+                    "text": clean_text(element.get_text())
+                },
+                "content": [],
+                "images": [],
+                "links": []
+            }
         else:
-            data = request.get_json()
-            url = data.get('url')
-            content_type = data.get('type', 'beautify')
+            if not current_section:
+                current_section = {
+                    "heading": None,
+                    "content": [],
+                    "images": [],
+                    "links": []
+                }
 
-        if not url:
-            return jsonify({
+            if element.name in ['p', 'ul', 'ol']:
+                text = clean_text(element.get_text())
+                if text:
+                    current_section["content"].append(text)
+            elif element.name == 'img' and element.get('src'):
+                current_section["images"].append({
+                    "url": urljoin(base_url, element['src']),
+                    "alt": clean_text(element.get('alt', ''))
+                })
+            elif element.name == 'a' and element.get('href'):
+                if not element['href'].startswith(('#', 'javascript:')):
+                    current_section["links"].append({
+                        "url": urljoin(base_url, element['href']),
+                        "text": clean_text(element.get_text())
+                    })
+
+    if current_section:
+        sections.append(current_section)
+
+    return sections
+
+def extract_raw_content(soup, base_url):
+    return {
+        "raw_html": str(soup),
+        "images": [urljoin(base_url, img['src']) 
+                  for img in soup.find_all('img') if img.get('src')],
+        "links": [urljoin(base_url, a['href']) 
+                 for a in soup.find_all('a', href=True) 
+                 if not a['href'].startswith(('#', 'javascript:'))]
+    }
+
+def extract_beautified_content(soup, base_url):
+    content = {
+        "metadata": {
+            "title": clean_text(soup.title.string if soup.title else ""),
+            "description": clean_text(soup.find('meta', attrs={'name': 'description'})['content']) 
+                          if soup.find('meta', attrs={'name': 'description'}) else ""
+        },
+        "sections": organize_content_by_headings(soup, base_url)
+    }
+    return content
+
+def scrape_website(url, content_type='beautify'):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
+        try:
+            soup = BeautifulSoup(response.content, 'html.parser')
+        except FeatureNotFound:
+            return {
                 "status": "error",
-                "error": "URL parameter is required"
-            }), 400
+                "url": url,
+                "error": "HTML parser not found or failed"
+            }
 
-        if content_type not in ('raw', 'beautify'):
-            return jsonify({
-                "status": "error",
-                "error": "Invalid type parameter. Use 'raw' or 'beautify'"
-            }), 400
+        for element in soup(['script', 'style', 'noscript']):
+            element.decompose()
 
-        result = scrape_website(url, content_type)
+        if content_type == 'raw':
+            result = extract_raw_content(soup, url)
+        else:
+            result = extract_beautified_content(soup, url)
 
-        status_code = 500 if result["status"] == "error" else 200
-        return jsonify(result), status_code
+        return {
+            "status": "success",
+            "url": url,
+            "type": content_type,
+            "data": result
+        }
 
-    except Exception as e:
-        logging.exception("Unexpected server error")
-        return jsonify({
+    except requests.exceptions.Timeout:
+        return {
             "status": "error",
-            "error": f"Internal server error: {str(e)}"
-        }), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+            "url": url,
+            "error": "Request timed out. Please try again later."
+        }
+    except requests.exceptions.RequestException as e:
+        return {
+            "status": "error",
+            "url": url,
+            "error": f"Request error: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "url": url,
+            "error": f"Unexpected error: {str(e)}"
+        }
