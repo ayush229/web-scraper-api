@@ -142,7 +142,7 @@ def scrape():
                         for para in sec.get("content", []):
                             combined_text += f"\n{para}"
 
-            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content from multiple URLs.
+            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely with some conversational reply based on the provided website content from multiple URLs.
 
 User query: "{user_query}"
 
@@ -150,7 +150,7 @@ Website content:
 \"\"\"{combined_text}\"\"\"
 
 Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
-Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
+Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer with some conversational reply if found.
 """
             ai_response = ask_llama(prompt)
             if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
@@ -194,14 +194,14 @@ Do not include introductory phrases like "To find...", "According to...", or sim
                             for para in section.get("paragraphs", []):
                                 all_text_content += f"\n{para}"
 
-                prompt = f"""You are an intelligent assistant. Use the following website content to answer the user's query directly and concisely.
+                prompt = f"""You are an intelligent assistant. Use the following website content to answer the user's query directly and concisely with some conversational reply.
 
 User query: "{user_query}"
 
 Website content:
 \"\"\"{all_text_content}\"\"\"
 
-Answer the user's query directly. If the answer is not found or the query is irrelevant, respond with: "Sorry, not found." Do not use introductory phrases.
+Answer the user's query directly with some conversational reply. If the answer is not found or the query is irrelevant, respond with: "Sorry, not found." Do not use introductory phrases.
 """
                 ai_response = ask_llama(prompt)
                 if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
