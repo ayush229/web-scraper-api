@@ -7,12 +7,17 @@ import logging
 import os
 from together import Together
 from urllib.parse import urlparse, urljoin
+import uuid
 
 app = Flask(__name__)
 
 # Authentication credentials
 AUTH_USERNAME = "ayush1"
 AUTH_PASSWORD = "blackbox098"
+
+# Directory to store scraped content
+SCRAPED_DATA_DIR = "scraped_content"
+os.makedirs(SCRAPED_DATA_DIR, exist_ok=True)
 
 # Initialize Together API client using the API token from environment variable
 client = Together()
@@ -58,6 +63,13 @@ def extract_text_from_section(section):
         text += f"{para} "
     return text.strip().lower()
 
+def get_stored_content(unique_code):
+    filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
+    if os.path.exists(filepath):
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    return None
+
 def process_crawl(base_url, crawl_type):
     visited = set()
     to_visit = [base_url]
@@ -93,6 +105,78 @@ def process_crawl(base_url, crawl_type):
             all_data.append({"url": current_url, "error": result["error"]}) # Include error in response
 
     return all_data
+
+@app.route('/scrape_and_store', methods=['POST'])
+@requires_auth
+def scrape_and_store():
+    try:
+        data = request.get_json(force=True) or {}
+        url = data.get('url')
+        if not url:
+            return jsonify({"status": "error", "error": "URL parameter is required"}), 400
+
+        result = scrape_website(url, 'beautify')
+        if result["status"] == "error":
+            return jsonify(result), 500
+
+        scraped_text = ""
+        try:
+            if "sections" in result["data"]:
+                sections = result["data"]["sections"]
+                for sec in sections:
+                    if sec.get("heading") and sec["heading"].get("text"):
+                        scraped_text += f"\n\n{sec['heading']['text']}"
+                    for para in sec.get("content", []):
+                        scraped_text += f"\n{para}"
+        except Exception as e:
+            print(f"Content parsing failed for storage: {e}")
+            scraped_text = result.get("data", "") # Fallback to raw if parsing fails
+
+        unique_code = str(uuid.uuid4())
+        filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(scraped_text)
+
+        return jsonify({"status": "success", "unique_code": unique_code})
+
+    except Exception as e:
+        return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
+
+@app.route('/ask_stored', methods=['POST'])
+@requires_auth
+def ask_stored():
+    try:
+        data = request.get_json(force=True) or {}
+        unique_code = data.get('unique_code')
+        user_query = data.get('user_query')
+
+        if not unique_code:
+            return jsonify({"status": "error", "error": "unique_code parameter is required"}), 400
+        if not user_query:
+            return jsonify({"status": "error", "error": "user_query parameter is required"}), 400
+
+        stored_content = get_stored_content(unique_code)
+        if not stored_content:
+            return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
+
+        prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided stored website content.
+
+User query: "{user_query}"
+
+Website content:
+\"\"\"{stored_content}\"\"\"
+
+Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
+Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
+"""
+        ai_response = ask_llama(prompt)
+        if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
+            ai_response = "Sorry, not found"
+
+        return jsonify({"status": "success", "ai_response": ai_response})
+
+    except Exception as e:
+        return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
 
 @app.route('/scrape', methods=['GET', 'POST'])
 @requires_auth
@@ -149,7 +233,7 @@ User query: "{user_query}"
 Website content:
 \"\"\"{combined_text}\"\"\"
 
-Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
+Answer the user's query directly with some conversational reply. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
 Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer with some conversational reply if found.
 """
             ai_response = ask_llama(prompt)
