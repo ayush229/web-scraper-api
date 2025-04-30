@@ -64,7 +64,7 @@ def extract_text_from_section(section):
     return text.strip().lower()
 
 def get_stored_content(unique_code):
-    filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
+    filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt}")
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
@@ -166,7 +166,7 @@ User query: "{user_query}"
 Website content:
 \"\"\"{stored_content}\"\"\"
 
-Answer the user's query directly. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
+Answer the user's query directly with some conversational reply. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
 Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
 """
         ai_response = ask_llama(prompt)
@@ -305,6 +305,18 @@ Answer the user's query directly with some conversational reply. If the answer i
             "status": "error",
             "error": f"Internal server error: {str(e)}"
         }), 500
+
+@app.route('/get_stored_file/<unique_code>', methods=['GET'])
+@requires_auth
+def get_stored_file(unique_code):
+    """
+    Retrieves the content of a stored text file based on its unique code.
+    """
+    content = get_stored_content(unique_code)
+    if content:
+        return jsonify({"status": "success", "content": content})
+    else:
+        return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
