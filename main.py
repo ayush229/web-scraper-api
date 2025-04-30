@@ -111,36 +111,41 @@ def process_crawl(base_url, crawl_type):
 def scrape_and_store():
     try:
         data = request.get_json(force=True) or {}
-        url = data.get('url')
-        if not url:
+        urls_str = data.get('url')  # Changed to get 'url' which should be a comma-separated string
+        if not urls_str:
             return jsonify({"status": "error", "error": "URL parameter is required"}), 400
 
-        result = scrape_website(url, 'beautify')
-        if result["status"] == "error":
-            return jsonify(result), 500
+        urls = [url.strip() for url in urls_str.split(',') if url.strip()]  # Split the string into a list of URLs
 
-        scraped_text = ""
-        try:
-            if "sections" in result["data"]:
-                sections = result["data"]["sections"]
-                for sec in sections:
-                    if sec.get("heading") and sec["heading"].get("text"):
-                        scraped_text += f"\n\n{sec['heading']['text']}"
-                    for para in sec.get("content", []):
-                        scraped_text += f"\n{para}"
-        except Exception as e:
-            print(f"Content parsing failed for storage: {e}")
-            scraped_text = result.get("data", "") # Fallback to raw if parsing fails
+        combined_text = ""
+        for url in urls:
+            result = scrape_website(url, 'beautify')
+            if result["status"] == "error":
+                return jsonify({"status": "error", "error": f"Error scraping {url}: {result['error']}"}), 500  # Return error for individual URL
+
+            try:
+                if "sections" in result["data"]:
+                    sections = result["data"]["sections"]
+                    for sec in sections:
+                        if sec.get("heading") and sec["heading"].get("text"):
+                            combined_text += f"\n\n{sec['heading']['text']}"
+                        for para in sec.get("content", []):
+                            combined_text += f"\n{para}"
+            except Exception as e:
+                print(f"Content parsing failed for storage for url {url}: {e}")
+                combined_text += result.get("data", "") # Fallback
 
         unique_code = str(uuid.uuid4())
         filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(scraped_text)
+            f.write(combined_text)
 
         return jsonify({"status": "success", "unique_code": unique_code})
 
     except Exception as e:
         return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
+
+
 
 @app.route('/ask_stored', methods=['POST'])
 @requires_auth
