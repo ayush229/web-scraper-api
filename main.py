@@ -354,4 +354,8 @@ Website content:
 
 Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
 """
-                    ai_response =
+                    ai_response = ask_llama(ai_prompt)
+                    if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+                        return jsonify({
+                            "status": "success",
+                            "type": crawl
