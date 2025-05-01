@@ -87,7 +87,7 @@ def find_relevant_content(content_array, query):
 
     Args:
         content_array:  A list of content objects, where each object
-                        has a 'text' key.
+                        represents the scraped data from one website.
         query:          The user's query string.
 
     Returns:
@@ -97,138 +97,20 @@ def find_relevant_content(content_array, query):
     """
     stop_words = set(
         [
-            "a",
-            "an",
-            "the",
-            "and",
-            "or",
-            "is",
-            "are",
-            "was",
-            "were",
-            "be",
-            "been",
-            "being",
-            "have",
-            "has",
-            "had",
-            "do",
-            "does",
-            "did",
-            "can",
-            "could",
-            "will",
-            "would",
-            "shall",
-            "should",
-            "may",
-            "might",
-            "must",
-            "it's",
-            "don't",
-            "i'm",
-            "you're",
-            "he's",
-            "she's",
-            "we're",
-            "they're",
-            "isn't",
-            "aren't",
-            "wasn't",
-            "weren't",
-            "haven't",
-            "hasn't",
-            "hadn't",
-            "don't",
-            "doesn't",
-            "didn't",
-            "can't",
-            "couldn't",
-            "won't",
-            "wouldn't",
-            "shan't",
-            "shouldn't",
-            "mayn't",
-            "mightn't",
-            "mustn't",
-            "you",
-            "i",
-            "he",
-            "she",
-            "it",
-            "we",
-            "they",
-            "this",
-            "that",
-            "these",
-            "those",
-            "my",
-            "your",
-            "his",
-            "her",
-            "its",
-            "our",
-            "their",
-            "here",
-            "there",
-            "what",
-            "where",
-            "when",
-            "why",
-            "how",
-            "who",
-            "whom",
-            "whose",
-            "with",
-            "without",
-            "to",
-            "from",
-            "up",
-            "down",
-            "in",
-            "out",
-            "on",
-            "off",
-            "over",
-            "under",
-            "again",
-            "further",
-            "then",
-            "once",
-            "here",
-            "there",
-            "when",
-            "where",
-            "why",
-            "how",
-            "all",
-            "any",
-            "both",
-            "each",
-            "few",
-            "many",
-            "more",
-            "most",
-            "some",
-            "such",
-            "no",
-            "nor",
-            "not",
-            "only",
-            "own",
-            "same",
-            "so",
-            "than",
-            "too",
-            "very",
-            "s",
-            "t",
-            "m",
-            "d",
-            "ll",
-            "re",
-            "ve",
-            "y",
+            "a", "an", "the", "and", "or", "is", "are", "was", "were", "be", "been", "being",
+            "have", "has", "had", "do", "does", "did", "can", "could", "will", "would",
+            "shall", "should", "may", "might", "must", "it's", "don't", "i'm", "you're",
+            "he's", "she's", "we're", "they're", "isn't", "aren't", "wasn't", "weren't",
+            "haven't", "hasn't", "hadn't", "don't", "doesn't", "didn't", "can't", "couldn't",
+            "won't", "wouldn't", "shan't", "shouldn't", "mayn't", "mightn't", "mustn't",
+            "you", "i", "he", "she", "it", "we", "they", "this", "that", "these", "those",
+            "my", "your", "his", "her", "its", "our", "their", "here", "there", "what",
+            "where", "when", "why", "how", "who", "whom", "whose", "with", "without",
+            "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again",
+            "further", "then", "once", "here", "there", "when", "where", "why", "how",
+            "all", "any", "both", "each", "few", "many", "more", "most", "some", "such",
+            "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s",
+            "t", "m", "d", "ll", "re", "ve", "y",
         ]
     )
     query_tokens = [
@@ -236,30 +118,49 @@ def find_relevant_content(content_array, query):
     ]
     relevant_content = []
     only_stop_words = True
+    meaningful_match_found = False
 
     if not content_array:
         return [], True
 
     for content_obj in content_array:
-        if not isinstance(content_obj, dict):
-            logger.warning(f"Content object is not a dictionary: {content_obj}")
+        if not isinstance(content_obj, dict) or 'content' not in content_obj:
+            logger.warning(f"Content object is not a valid format: {content_obj}")
             continue
-        text = content_obj.get('text', '')  # Ensure 'text' key exists
-        content_tokens = [
-            w.lower() for w in re.findall(r"\b\w+\b", text) if w.isalnum()
-        ]
-        has_meaningful_match = False
-        for query_word in query_tokens:
-            if query_word in content_tokens:
-                if query_word not in stop_words:
-                    has_meaningful_match = True
-                    only_stop_words = False
-                    break  # Found a meaningful word, no need to check others for this content
 
-        if has_meaningful_match:
+        page_relevant = False
+        page_text = ""
+        for section in content_obj.get('content', []):
+            heading = section.get('heading', '')
+            paragraphs = section.get('paragraphs', [])
+            page_text += f"Heading: {heading}\n"
+            page_text += "\n".join(paragraphs) + "\n"
+
+            content_tokens = [
+                w.lower() for w in re.findall(r"\b\w+\b", heading + " ".join(paragraphs)) if w.isalnum()
+            ]
+            for query_word in query_tokens:
+                if query_word in content_tokens:
+                    if query_word not in stop_words:
+                        page_relevant = True
+                        meaningful_match_found = True
+                        only_stop_words = False
+                        break
+            if page_relevant:
+                break  # Move to the next content object if relevant content is found
+
+        if page_relevant:
             relevant_content.append(content_obj)
+        elif not meaningful_match_found:
+            all_query_words_are_stopwords = True
+            for q_word in query_tokens:
+                if q_word not in stop_words:
+                    all_query_words_are_stopwords = False
+                    break
+            if not all_query_words_are_stopwords:
+                only_stop_words = False # Even if no match in this object, some meaningful words were in query
 
-    return relevant_content, only_stop_words
+    return relevant_content, not meaningful_match_found and query_tokens # Return true if no meaningful match AND there were query tokens
 
 
 def process_crawl(base_url, crawl_type):
@@ -344,12 +245,6 @@ def scrape_and_store():
             else:
                 page_data["content"] = []
 
-            # Extract text for storage
-            text_content = ""
-            for item in page_data["content"]:
-                text_content += (item["heading"] or "") + "\n" + "\n".join(item["paragraphs"])
-            page_data["text"] = text_content
-
             results.append(page_data)
 
         unique_code = str(uuid.uuid4())
@@ -408,32 +303,16 @@ User question: "{user_query}"
         prompt_text += "Website content:\n"
         for i, content_obj in enumerate(relevant_content_objects):
             prompt_text += f"Site {i + 1}:\n"
-            if not isinstance(content_obj, dict):
-                logger.warning(f"Content object is not a dictionary: {content_obj}")
-                prompt_text += "Heading: \n"
-                prompt_text += "\n".join([])
-                continue  # Skip to the next content object
-            content_list = content_obj.get('content', [])
-            if not isinstance(content_list, list):
-                logger.warning(f"'content' is not a list: {content_list} in {content_obj}")
-                prompt_text += "Heading: \n"
-                prompt_text += "\n".join([])
+            if not isinstance(content_obj, dict) or 'content' not in content_obj:
+                logger.warning(f"Content object is not a valid format: {content_obj}")
                 continue
-            if content_list:
-                first_content = content_list[0]
-                if not isinstance(first_content, dict):
-                    logger.warning(f"First content is not a dict: {first_content} in {content_obj}")
-                    heading = ''
-                    paragraphs = []
-                else:
-                    heading = first_content.get('heading', '')
-                    paragraphs = first_content.get('paragraphs', [])
-            else:
-                heading = ''
-                paragraphs = []
-            prompt_text += f"Heading:{heading}\n"
-            for para in paragraphs:
-                prompt_text += f"{para}\n"
+
+            for section in content_obj.get('content', []):
+                heading = section.get('heading', '')
+                paragraphs = section.get('paragraphs', [])
+                prompt_text += f"Heading: {heading}\n"
+                prompt_text += "\n".join(paragraphs) + "\n"
+            prompt_text += "\n"
 
         ai_response = ask_llama(prompt_text)
         if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(
