@@ -9,6 +9,18 @@ from together import Together
 from urllib.parse import urlparse, urljoin
 import uuid
 import re
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
+import nltk
+try:
+    stopwords.words('english')
+except LookupError:
+    nltk.download('stopwords')
+try:
+    word_tokenize("example")
+except LookupError:
+    nltk.download('punkt')
 
 app = Flask(__name__)
 
@@ -37,7 +49,7 @@ def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
+        if not auth or not check_auth(auth.auth.username, auth.auth.password):
             return authenticate()
         return f(*args, **kwargs)
     return decorated
@@ -63,20 +75,24 @@ def get_stored_content(unique_code):
             return f.read()
     return None
 
-def find_relevant_sentences(content, query, num_sentences=7, min_word_match=1):
+def find_relevant_sentences(content, query, num_sentences=7, min_meaningful_word_match=1):
     """
-    Finds sentences in the content that are relevant to the query.
-    It now considers sentences with at least 'min_word_match' common words.
+    Finds sentences in the content that are relevant to the query based on meaningful words.
+    It requires at least 'min_meaningful_word_match' meaningful words from the query to be present in a sentence.
     """
-    query_words = set(query.lower().split())
+    stop_words = set(stopwords.words('english'))
+    query_tokens = [w.lower() for w in word_tokenize(query) if w.isalnum() and w.lower() not in stop_words]
+    if not query_tokens:
+        return []  # If no meaningful words in the query, return empty
+
     sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
     sentence_scores = []
 
     for sentence in sentences:
-        sentence = sentence.lower()
-        common_words = len(query_words.intersection(sentence.split()))
-        if common_words >= min_word_match:
-            sentence_scores.append((sentence, common_words))
+        sentence_tokens = [w.lower() for w in word_tokenize(sentence) if w.isalnum() and w.lower() not in stop_words]
+        common_meaningful_words = len(set(query_tokens).intersection(sentence_tokens))
+        if common_meaningful_words >= min_meaningful_word_match:
+            sentence_scores.append((sentence, common_meaningful_words))
 
     sentence_scores.sort(key=lambda item: item[1], reverse=True)
     return [sentence for sentence, score in sentence_scores[:num_sentences]]
@@ -173,7 +189,7 @@ def ask_stored():
         if not stored_content:
             return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
 
-        # Find relevant sentences
+        # Find relevant sentences based on meaningful words
         relevant_sentences = find_relevant_sentences(stored_content, user_query)
 
         if not relevant_sentences:
@@ -247,30 +263,42 @@ def scrape():
                         for para in sec.get("content", []):
                             combined_text += f"\n{para}"
 
-            prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website content.** If the answer cannot be confidently derived from this content, please respond with: "Sorry, I am unable to help you with this."
+            # Find relevant sentences based on meaningful words
+            relevant_sentences = find_relevant_sentences(combined_text, user_query)
 
-User question: "{user_query}"
-
-Website content:
-\"\"\"{combined_text}\"\"\"
-
-Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
-"""
-            ai_response = ask_llama(prompt)
-            if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+            if not relevant_sentences:
                 return jsonify({
                     "status": "success",
                     "type": "ai",
                     "ai_response": "Sorry, I am unable to help you with this.",
-                    "ai_used": True
+                    "ai_used": False
                 })
             else:
-                return jsonify({
-                    "status": "success",
-                    "type": "ai",
-                    "ai_response": ai_response,
-                    "ai_used": True
-                })
+                relevant_content = "\n".join(relevant_sentences)
+                ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website content.** If the answer cannot be confidently derived from this content, please respond with: "Sorry, I am unable to help you with this."
+
+User question: "{user_query}"
+
+Website content:
+\"\"\"{relevant_content}\"\"\"
+
+Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
+"""
+                ai_response = ask_llama(ai_prompt)
+                if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+                    return jsonify({
+                        "status": "success",
+                        "type": "ai",
+                        "ai_response": "Sorry, I am unable to help you with this.",
+                        "ai_used": True
+                    })
+                else:
+                    return jsonify({
+                        "status": "success",
+                        "type": "ai",
+                        "ai_response": ai_response,
+                        "ai_used": True
+                    })
 
         elif content_type.startswith("crawl_"):
             all_crawl_data = []
@@ -305,56 +333,25 @@ Provide a direct and conversational answer **strictly based on the content above
                             for para in section.get("paragraphs", []):
                                 all_text_content += f"\n{para}"
 
-                prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website content.** If the answer cannot be confidently derived from this content, please respond with: "Sorry, I am unable to help you with this."
+                # Find relevant sentences based on meaningful words
+                relevant_sentences = find_relevant_sentences(all_text_content, user_query)
 
-User question: "{user_query}"
-
-Website content:
-\"\"\"{all_text_content}\"\"\"
-
-Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
-"""
-                ai_response = ask_llama(prompt)
-                if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+                if not relevant_sentences:
                     return jsonify({
                         "status": "success",
                         "type": crawl_type,
                         "ai_response": "Sorry, I am unable to help you with this.",
-                        "ai_used": True
+                        "ai_used": False
                     })
                 else:
-                    return jsonify({
-                        "status": "success",
-                        "type": crawl_type,
-                        "ai_response": ai_response,
-                        "ai_used": True
-                    })
-            else:
-                return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
+                    relevant_content = "\n".join(relevant_sentences)
+                    ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website content.** If the answer cannot be confidently derived from this content, please respond with: "Sorry, I am unable to help you with this."
 
-        else:
-            return jsonify({
-                "status": "error",
-                "error": "Invalid type parameter."
-            }), 400
+User question: "{user_query}"
 
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "error": f"Internal server error: {str(e)}"
-        }), 500
+Website content:
+\"\"\"{relevant_content}\"\"\"
 
-@app.route('/get_stored_file/<unique_code>', methods=['GET'])
-@requires_auth
-def get_stored_file(unique_code):
-    """
-    Retrieves the content of a stored text file based on its unique code.
-    """
-    content = get_stored_content(unique_code)
-    if content:
-        return jsonify({"status": "success", "content": content})
-    else:
-        return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
+"""
+                    ai_response =
