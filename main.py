@@ -454,7 +454,7 @@ User question: "{user_query}"
 def scrape():
     try:
         if request.method == 'GET':
-        urls_str = request.args.get('url')
+            urls_str = request.args.get('url')
             content_type = request.args.get('type', 'beautify')
             user_query = request.args.get('user_query', '')
         else:
