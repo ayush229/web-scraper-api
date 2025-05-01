@@ -177,30 +177,22 @@ def ask_stored():
         relevant_sentences = find_relevant_sentences(stored_content, user_query)
 
         if not relevant_sentences:
-            ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question based on your understanding. If you don't have the information, simply say, "I'm sorry, I don't have that information."
-
-User question: "{user_query}"
-
-(The following is context that might be helpful, but your answer should sound like it comes from your own knowledge):
-\"\"\"{stored_content}\"\"\"
-
-Provide a direct and conversational answer.
-"""
+            return jsonify({"status": "success", "ai_response": "Sorry, I am unable to help you with this."})
         else:
             relevant_content = "\n".join(relevant_sentences)
-            ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question, drawing upon your understanding. If the specific details are not something you readily know, please say, "I'm sorry, I don't have that specific detail."
+            ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website snippets.** If the answer cannot be confidently derived from these snippets, please respond with: "Sorry, I am unable to help you with this."
 
 User question: "{user_query}"
 
-(The following are relevant snippets that might inform your answer, but your response should sound natural):
+Relevant website snippets:
 \"\"\"{relevant_content}\"\"\"
 
-Provide a direct and conversational answer.
+Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
 """
 
         ai_response = ask_llama(ai_prompt)
-        if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-            ai_response = "I'm sorry, I don't have that specific detail."
+        if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+            ai_response = "Sorry, I am unable to help you with this."
 
         return jsonify({"status": "success", "ai_response": ai_response})
 
@@ -255,18 +247,18 @@ def scrape():
                         for para in sec.get("content", []):
                             combined_text += f"\n{para}"
 
-            prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question based on your understanding of the following website content. If you don't have the information, simply say, "I'm sorry, I don't have that information."
+            prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website content.** If the answer cannot be confidently derived from this content, please respond with: "Sorry, I am unable to help you with this."
 
 User question: "{user_query}"
 
-(The following is context that might be helpful, but your answer should sound like it comes from your own knowledge):
+Website content:
 \"\"\"{combined_text}\"\"\"
 
-Provide a direct and conversational answer.
+Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
 """
             ai_response = ask_llama(prompt)
-            if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                ai_response = "I'm sorry, I don't have that information."
+            if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+                ai_response = "Sorry, I am unable to help you with this."
             return jsonify({
                 "status": "success",
                 "type": "ai",
@@ -306,18 +298,18 @@ Provide a direct and conversational answer.
                             for para in section.get("paragraphs", []):
                                 all_text_content += f"\n{para}"
 
-                prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question based on your understanding of the following website content. If you don't have the information, simply say, "I'm sorry, I don't have that information."
+                prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website content.** If the answer cannot be confidently derived from this content, please respond with: "Sorry, I am unable to help you with this."
 
 User question: "{user_query}"
 
-(The following is context that might be helpful, but your answer should sound like it comes from your own knowledge):
+Website content:
 \"\"\"{all_text_content}\"\"\"
 
-Provide a direct and conversational answer.
+Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
 """
                 ai_response = ask_llama(ai_prompt)
-                if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                    ai_response = "I'm sorry, I don't have that information."
+                if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+                    ai_response = "Sorry, I am unable to help you with this."
                 return jsonify({"status": "success", "type": crawl_type, "ai_response": ai_response})
             else:
                 return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
