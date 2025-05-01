@@ -63,11 +63,10 @@ def get_stored_content(unique_code):
             return f.read()
     return None
 
-def find_relevant_sentences(content, query, num_sentences=5):
+def find_relevant_sentences(content, query, num_sentences=7, min_word_match=1):
     """
-    Finds sentences in the content that are most relevant to the query.
-    A simple keyword-based approach is used here. You could integrate more
-    advanced semantic search techniques if needed.
+    Finds sentences in the content that are relevant to the query.
+    It now considers sentences with at least 'min_word_match' common words.
     """
     query_words = set(query.lower().split())
     sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
@@ -75,11 +74,9 @@ def find_relevant_sentences(content, query, num_sentences=5):
 
     for sentence in sentences:
         sentence = sentence.lower()
-        score = 0
-        for word in query_words:
-            if word in sentence:
-                score += 1
-        sentence_scores.append((sentence, score))
+        common_words = len(query_words.intersection(sentence.split()))
+        if common_words >= min_word_match:
+            sentence_scores.append((sentence, common_words))
 
     sentence_scores.sort(key=lambda item: item[1], reverse=True)
     return [sentence for sentence, score in sentence_scores[:num_sentences]]
@@ -178,16 +175,16 @@ def ask_stored():
 
         # Find relevant sentences
         relevant_sentences = find_relevant_sentences(stored_content, user_query)
+
         if not relevant_sentences:
-            ai_prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided stored website content.
+            ai_prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content. If the answer is not explicitly found, please respond with "Sorry, not found."
 
 User query: "{user_query}"
 
 Website content:
 \"\"\"{stored_content}\"\"\"
 
-Answer the user's query directly with some conversational reply. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
-Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
+Answer the user's query directly with some conversational reply. Do not include introductory phrases. If the answer isn't present, just say "Sorry, not found."
 """
         else:
             relevant_content = "\n".join(relevant_sentences)
@@ -198,8 +195,7 @@ User query: "{user_query}"
 Relevant website snippets:
 \"\"\"{relevant_content}\"\"\"
 
-Answer the user's query directly with some conversational reply. If the answer is not found within these snippets, or if the query is irrelevant to them, respond with: "Sorry, not found."
-Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
+Answer the user's query directly with some conversational reply. If the answer is not found within these snippets, please respond with "Sorry, not found." Do not include introductory phrases.
 """
 
         ai_response = ask_llama(ai_prompt)
@@ -259,14 +255,14 @@ def scrape():
                         for para in sec.get("content", []):
                             combined_text += f"\n{para}"
 
-            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely with some conversational reply based on the provided website content from multiple URLs.
+            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely with some conversational reply based on the provided website content from multiple URLs. If the answer is not explicitly found, please respond with "Sorry, not found."
 
 User query: "{user_query}"
 
 Website content:
 \"\"\"{combined_text}\"\"\"
 
-Answer the user's query directly with some conversational reply. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found." Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer with some conversational reply if found.
+Answer the user's query directly with some conversational reply. Do not include introductory phrases. If the answer isn't present, just say "Sorry, not found."
 """
             ai_response = ask_llama(prompt)
             if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
@@ -310,14 +306,14 @@ Answer the user's query directly with some conversational reply. If the answer i
                             for para in section.get("paragraphs", []):
                                 all_text_content += f"\n{para}"
 
-                prompt = f"""You are an intelligent assistant. Use the following website content to answer the user's query directly and concisely with some conversational reply.
+                prompt = f"""You are an intelligent assistant. Use the following website content to answer the user's query directly and concisely with some conversational reply. If the answer is not explicitly found, please respond with "Sorry, not found."
 
 User query: "{user_query}"
 
 Website content:
 \"\"\"{all_text_content}\"\"\"
 
-Answer the user's query directly with some conversational reply. If the answer is not found or the query is irrelevant, respond with: "Sorry, not found." Do not use introductory phrases.
+Answer the user's query directly with some conversational reply. Do not use introductory phrases. If the answer isn't present, just say "Sorry, not found."
 """
                 ai_response = ask_llama(prompt)
                 if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
