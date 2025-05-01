@@ -177,7 +177,7 @@ def ask_stored():
         relevant_sentences = find_relevant_sentences(stored_content, user_query)
 
         if not relevant_sentences:
-            return jsonify({"status": "success", "ai_response": "Sorry, I am unable to help you with this."})
+            return jsonify({"status": "success", "ai_response": "Sorry, I am unable to help you with this.", "ai_used": False})
         else:
             relevant_content = "\n".join(relevant_sentences)
             ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question **only if the answer is directly and clearly supported by the following website snippets.** If the answer cannot be confidently derived from these snippets, please respond with: "Sorry, I am unable to help you with this."
@@ -190,11 +190,11 @@ Relevant website snippets:
 Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
 """
 
-        ai_response = ask_llama(ai_prompt)
-        if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
-            ai_response = "Sorry, I am unable to help you with this."
-
-        return jsonify({"status": "success", "ai_response": ai_response})
+            ai_response = ask_llama(ai_prompt)
+            if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
+                return jsonify({"status": "success", "ai_response": "Sorry, I am unable to help you with this.", "ai_used": True})
+            else:
+                return jsonify({"status": "success", "ai_response": ai_response, "ai_used": True})
 
     except Exception as e:
         return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
@@ -258,12 +258,19 @@ Provide a direct and conversational answer **strictly based on the content above
 """
             ai_response = ask_llama(prompt)
             if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
-                ai_response = "Sorry, I am unable to help you with this."
-            return jsonify({
-                "status": "success",
-                "type": "ai",
-                "ai_response": ai_response
-            })
+                return jsonify({
+                    "status": "success",
+                    "type": "ai",
+                    "ai_response": "Sorry, I am unable to help you with this.",
+                    "ai_used": True
+                })
+            else:
+                return jsonify({
+                    "status": "success",
+                    "type": "ai",
+                    "ai_response": ai_response,
+                    "ai_used": True
+                })
 
         elif content_type.startswith("crawl_"):
             all_crawl_data = []
@@ -307,10 +314,21 @@ Website content:
 
 Provide a direct and conversational answer **strictly based on the content above.** If the information to answer is not explicitly present, respond with: "Sorry, I am unable to help you with this."
 """
-                ai_response = ask_llama(ai_prompt)
+                ai_response = ask_llama(prompt)
                 if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
-                    ai_response = "Sorry, I am unable to help you with this."
-                return jsonify({"status": "success", "type": crawl_type, "ai_response": ai_response})
+                    return jsonify({
+                        "status": "success",
+                        "type": crawl_type,
+                        "ai_response": "Sorry, I am unable to help you with this.",
+                        "ai_used": True
+                    })
+                else:
+                    return jsonify({
+                        "status": "success",
+                        "type": crawl_type,
+                        "ai_response": ai_response,
+                        "ai_used": True
+                    })
             else:
                 return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
 
