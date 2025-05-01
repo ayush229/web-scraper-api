@@ -9,18 +9,6 @@ from together import Together
 from urllib.parse import urlparse, urljoin
 import uuid
 import re
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-
-import nltk
-try:
-    stopwords.words('english')
-except LookupError:
-    nltk.download('stopwords')
-try:
-    word_tokenize("example")
-except LookupError:
-    nltk.download('punkt')
 
 app = Flask(__name__)
 
@@ -77,11 +65,149 @@ def get_stored_content(unique_code):
 
 def find_relevant_sentences(content, query, num_sentences=7, min_meaningful_word_match=1):
     """
-    Finds sentences in the content that are relevant to the query based on meaningful words.
-    It requires at least 'min_meaningful_word_match' meaningful words from the query to be present in a sentence.
+    Finds sentences in the content that are relevant to the query based on meaningful words,
+    without using NLTK.  It requires at least 'min_meaningful_word_match' meaningful words
+    from the query to be present in a sentence.
     """
-    stop_words = set(stopwords.words('english'))
-    query_tokens = [w.lower() for w in word_tokenize(query) if w.isalnum() and w.lower() not in stop_words]
+    stop_words = set(
+        [
+            "a",
+            "an",
+            "the",
+            "and",
+            "or",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "can",
+            "could",
+            "will",
+            "would",
+            "shall",
+            "should",
+            "may",
+            "might",
+            "must",
+            "it's",
+            "don't",
+            "i'm",
+            "you're",
+            "he's",
+            "she's",
+            "we're",
+            "they're",
+            "isn't",
+            "aren't",
+            "wasn't",
+            "weren't",
+            "haven't",
+            "hasn't",
+            "hadn't",
+            "don't",
+            "doesn't",
+            "didn't",
+            "can't",
+            "couldn't",
+            "won't",
+            "wouldn't",
+            "shan't",
+            "shouldn't",
+            "mayn't",
+            "mightn't",
+            "mustn't",
+            "you",
+            "i",
+            "he",
+            "she",
+            "it",
+            "we",
+            "they",
+            "this",
+            "that",
+            "these",
+            "those",
+            "my",
+            "your",
+            "his",
+            "her",
+            "its",
+            "our",
+            "their",
+            "here",
+            "there",
+            "what",
+            "where",
+            "when",
+            "why",
+            "how",
+            "who",
+            "whom",
+            "whose",
+            "with",
+            "without",
+            "to",
+            "from",
+            "up",
+            "down",
+            "in",
+            "out",
+            "on",
+            "off",
+            "over",
+            "under",
+            "again",
+            "further",
+            "then",
+            "once",
+            "here",
+            "there",
+            "when",
+            "where",
+            "why",
+            "how",
+            "all",
+            "any",
+            "both",
+            "each",
+            "few",
+            "many",
+            "more",
+            "most",
+            "some",
+            "such",
+            "no",
+            "nor",
+            "not",
+            "only",
+            "own",
+            "same",
+            "so",
+            "than",
+            "too",
+            "very",
+            "s",
+            "t",
+            "m",
+            "d",
+            "ll",
+            "re",
+            "ve",
+            "y",
+        ]
+    )
+    query_tokens = [
+        w.lower() for w in re.findall(r"\b\w+\b", query) if w.isalnum() and w.lower() not in stop_words
+    ]
     if not query_tokens:
         return []  # If no meaningful words in the query, return empty
 
@@ -89,13 +215,17 @@ def find_relevant_sentences(content, query, num_sentences=7, min_meaningful_word
     sentence_scores = []
 
     for sentence in sentences:
-        sentence_tokens = [w.lower() for w in word_tokenize(sentence) if w.isalnum() and w.lower() not in stop_words]
+        sentence_tokens = [
+            w.lower() for w in re.findall(r"\b\w+\b", sentence) if w.isalnum() and w.lower() not in stop_words
+        ]
         common_meaningful_words = len(set(query_tokens).intersection(sentence_tokens))
         if common_meaningful_words >= min_meaningful_word_match:
             sentence_scores.append((sentence, common_meaningful_words))
 
     sentence_scores.sort(key=lambda item: item[1], reverse=True)
     return [sentence for sentence, score in sentence_scores[:num_sentences]]
+
+
 
 def process_crawl(base_url, crawl_type):
     visited = set()
@@ -394,7 +524,8 @@ def get_stored_file(unique_code):
     if content:
         return jsonify({"status": "success", "content": content})
     else:
-        return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
+        return jsonify({"status": error", "error": f"Content not found for unique_code: {unique_code}"}), 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
