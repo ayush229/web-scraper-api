@@ -9,6 +9,7 @@ from together import Together
 from urllib.parse import urlparse, urljoin
 import uuid
 import re
+import traceback  # Import traceback for detailed error logging
 
 app = Flask(__name__)
 
@@ -23,8 +24,14 @@ os.makedirs(SCRAPED_DATA_DIR, exist_ok=True)
 # Initialize Together API client using the API token from environment variable
 client = Together()
 
+# Configure logging
+logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
 def check_auth(username, password):
     return username == AUTH_USERNAME and password == AUTH_PASSWORD
+
 
 def authenticate():
     return make_response(
@@ -32,6 +39,7 @@ def authenticate():
         401,
         {'WWW-Authenticate': 'Basic realm="Login Required"'}
     )
+
 
 def requires_auth(f):
     @wraps(f)
@@ -41,6 +49,7 @@ def requires_auth(f):
             return authenticate()
         return f(*args, **kwargs)
     return decorated
+
 
 def ask_llama(prompt):
     try:
@@ -53,16 +62,28 @@ def ask_llama(prompt):
         else:
             return None
     except Exception as e:
-        print(f"LLM error: {e}")
+        error_message = f"LLM error: {e}"
+        logger.error(error_message)
+        print(error_message)  # Keep the print for immediate visibility
         return None
+
+
 
 def get_stored_content(unique_code):
     filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
     if os.path.exists(filepath):
-        with open(filepath, 'r', encoding='utf-8') as f:
-            import json
-            return json.loads(f.read())  # Load the JSON data
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                import json
+                return json.loads(f.read())  # Load the JSON data
+        except json.JSONDecodeError as e:
+            error_message = f"Error decoding JSON from {filepath}: {e}"
+            logger.error(error_message)
+            print(error_message)
+            return None  # Handle the error, return None or an empty list
     return None
+
+
 
 def find_relevant_content(content_array, query):
     """
@@ -220,7 +241,13 @@ def find_relevant_content(content_array, query):
     relevant_content = []
     only_stop_words = True
 
+    if not content_array:
+        return [], True
+
     for content_obj in content_array:
+        if not isinstance(content_obj, dict):
+            logger.warning(f"Content object is not a dictionary: {content_obj}")
+            continue
         text = content_obj.get('text', '')  # Ensure 'text' key exists
         content_tokens = [
             w.lower() for w in re.findall(r"\b\w+\b", text) if w.isalnum()
@@ -243,8 +270,8 @@ def find_relevant_content(content_array, query):
 def process_crawl(base_url, crawl_type):
     visited = set()
     to_visit = [base_url]
-    all_data = []
     domain = urlparse(base_url).netloc
+    all_data = []
 
     while to_visit:
         current_url = to_visit.pop(0)
@@ -252,29 +279,41 @@ def process_crawl(base_url, crawl_type):
             continue
         visited.add(current_url)
 
-        result = scrape_website(current_url, 'beautify')
-        if result["status"] == "success":
-            page_data = {"url": current_url, "content": []}
-            if "sections" in result["data"]:
-                for section in result["data"]["sections"]:
-                    section_content = {"heading": section.get("heading"), "paragraphs": section.get("content", [])}
-                    page_data["content"].append(section_content)
-                    if crawl_type != "crawl_raw":
-                        for link in section.get("links", []):
-                            parsed_link = urlparse(link)
-                            absolute_link = urljoin(current_url, parsed_link.path)
-                            if parsed_link.netloc == domain or parsed_link.netloc == '':
-                                clean_link = absolute_link.rstrip('/')
-                                if clean_link not in visited and clean_link not in to_visit:
-                                    to_visit.append(clean_link)
-            elif crawl_type == "crawl_raw":
-                page_data["raw_data"] = result["data"]
-            all_data.append(page_data)
-        else:
-            print(f"Error scraping {current_url} during crawl: {result['error']}")
-            all_data.append({"url": current_url, "error": result["error"]}) # Include error in response
+        try:
+            result = scrape_website(current_url, crawl_type)
+            if result["status"] == "success":
+                page_data = {"url": current_url, "content": []}
+                if "sections" in result["data"]:
+                    for section in result["data"]["sections"]:
+                        section_content = {"heading": section.get("heading"), "paragraphs": section.get("content", [])}
+                        page_data["content"].append(section_content)
+                        if crawl_type != "crawl_raw":
+                            for link in section.get("links", []):
+                                parsed_link = urlparse(link)
+                                absolute_link = urljoin(current_url, parsed_link.path)
+                                if parsed_link.netloc == domain or parsed_link.netloc == '':
+                                    clean_link = absolute_link.rstrip('/')
+                                    if clean_link not in visited and clean_link not in to_visit:
+                                        to_visit.append(clean_link)
+                elif crawl_type == "crawl_raw":
+                    page_data["raw_data"] = result["data"]
+                elif result["data"]:
+                    page_data["content"] = [{"heading": None, "paragraphs": [result["data"]]}]
+                all_data.append(page_data)
+            else:
+                error_message = f"Error scraping {current_url} during crawl: {result['error']}"
+                logger.error(error_message)
+                print(error_message)
+                all_data.append({"url": current_url, "error": result["error"]})  # Include error in response
+        except Exception as e:
+            error_message = f"Error processing {current_url} during crawl: {e}"
+            logger.error(error_message)
+            print(error_message)
+            all_data.append({"url": current_url, "error": str(e)})
 
     return all_data
+
+
 
 @app.route('/scrape_and_store', methods=['POST'])
 @requires_auth
@@ -291,37 +330,53 @@ def scrape_and_store():
         for url in urls:
             result = scrape_website(url, 'beautify')
             if result["status"] == "error":
-                return jsonify({"status": "error", "error": f"Error scraping {url}: {result['error']}"}), 500
+                error_message = f"Error scraping {url}: {result['error']}"
+                logger.error(error_message)
+                print(error_message)
+                return jsonify({"status": "error", "error": error_message}), 500
 
             page_data = {"url": url, "content": []}
             if "sections" in result["data"]:
                 for section in result["data"]["sections"]:
                     section_content = {
-                        "heading": section.get("heading", {}).get("text", ""),  #handle if heading is None
+                        "heading": section.get("heading", {}).get("text", ""),  # handle if heading is None
                         "paragraphs": section.get("content", [])
                     }
                     page_data["content"].append(section_content)
+            elif result["data"]:
+                page_data["content"] = [{"heading": None, "paragraphs": [result["data"]]}]
             else:
-                page_data["content"] = [{"heading": "", "paragraphs": [result.get("data", "")]}]
+                page_data["content"] = []
 
             # Extract text for storage
             text_content = ""
             for item in page_data["content"]:
-                text_content += item["heading"] + "\n" + "\n".join(item["paragraphs"])
+                text_content += (item["heading"] or "") + "\n" + "\n".join(item["paragraphs"])
             page_data["text"] = text_content
 
             results.append(page_data)
 
         unique_code = str(uuid.uuid4())
         filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
-        with open(filepath, 'w', encoding='utf-8') as f:
-            import json
-            f.write(json.dumps(results, ensure_ascii=False, indent=4))  # Store as JSON
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                import json
+                f.write(json.dumps(results, ensure_ascii=False, indent=4))  # Store as JSON
+        except Exception as e:
+            error_message = f"Error writing to file {filepath}: {e}"
+            logger.error(error_message)
+            print(error_message)
+            return jsonify({"status": "error", "error": error_message}), 500
 
         return jsonify({"status": "success", "unique_code": unique_code})
 
     except Exception as e:
-        return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
+        error_message = f"Internal server error in /scrape_and_store: {str(e)}"
+        logger.error(error_message)
+        print(error_message)
+        return jsonify({"status": "error", "error": error_message}), 500
+
+
 
 @app.route('/ask_stored', methods=['POST'])
 @requires_auth
@@ -357,15 +412,27 @@ User question: "{user_query}"
 """
         prompt_text += "Website content:\n"
         for i, content_obj in enumerate(relevant_content_objects):
-            prompt_text += f"Site {i+1}:\n"
-            print(f"Content Object {i+1}: {content_obj}")  # Debugging: Print the content object
+            prompt_text += f"Site {i + 1}:\n"
+            if not isinstance(content_obj, dict):
+                logger.warning(f"Content object is not a dictionary: {content_obj}")
+                prompt_text += "Heading: \n"
+                prompt_text += "\n".join([])
+                continue  # Skip to the next content object
             content_list = content_obj.get('content', [])
-            print(f"Content List {i+1}: {content_list}")
+            if not isinstance(content_list, list):
+                logger.warning(f"'content' is not a list: {content_list} in {content_obj}")
+                prompt_text += "Heading: \n"
+                prompt_text += "\n".join([])
+                continue
             if content_list:
                 first_content = content_list[0]
-                print(f"First Content {i+1}: {first_content}")
-                heading = first_content.get('heading', '')
-                paragraphs = first_content.get('paragraphs', [])
+                if not isinstance(first_content, dict):
+                    logger.warning(f"First content is not a dict: {first_content} in {content_obj}")
+                    heading = ''
+                    paragraphs = []
+                else:
+                    heading = first_content.get('heading', '')
+                    paragraphs = first_content.get('paragraphs', [])
             else:
                 heading = ''
                 paragraphs = []
@@ -374,13 +441,19 @@ User question: "{user_query}"
                 prompt_text += f"{para}\n"
 
         ai_response = ask_llama(prompt_text)
-        if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(ai_response.strip()) < 10:
+        if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(
+                ai_response.strip()) < 10:
             return jsonify({"status": "success", "ai_response": "I cannot provide a helpful response.", "ai_used": True})
         else:
             return jsonify({"status": "success", "ai_response": ai_response, "ai_used": True})
 
     except Exception as e:
-        return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
+        error_message = f"Internal server error in /ask_stored: {str(e)}"
+        logger.error(error_message)
+        print(error_message)
+        return jsonify({"status": "error", "error": error_message}), 500
+
+
 
 @app.route('/scrape', methods=['GET', 'POST'])
 @requires_auth
@@ -393,8 +466,11 @@ def scrape():
         else:
             try:
                 data = request.get_json(force=True) or {}
-            except Exception:
-                data = {}
+            except Exception as e:
+                error_message = f"Error parsing JSON in /scrape: {e}"
+                logger.error(error_message)
+                print(error_message)
+                return jsonify({"status": "error", "error": error_message}), 400
             urls_str = data.get('url', '')
             content_type = data.get('type', 'beautify')
             user_query = data.get('user_query', '')
@@ -422,13 +498,19 @@ def scrape():
             for url in urls:
                 result = scrape_website(url, 'beautify')
                 if result["status"] == "error":
-                    print(f"Error scraping {url} for AI: {result['error']}")
+                    error_message = f"Error scraping {url} for AI: {result['error']}"
+                    logger.error(error_message)
+                    print(error_message)
+                    # Don't return here, process other URLs
+                    continue
                 elif "sections" in result["data"]:
                     for sec in result["data"]["sections"]:
                         if sec.get("heading") and sec["heading"].get("text"):
                             combined_text += f"\n\n{sec['heading']['text']}"
                         for para in sec.get("content", []):
                             combined_text += f"\n{para}"
+                elif result["data"]:
+                    combined_text += f"\n\n{result["data"]}"
 
             # Find relevant sentences based on meaningful words
             relevant_sentences = find_relevant_sentences(combined_text, user_query)
@@ -452,7 +534,8 @@ Website content:
 Provide a direct and conversational answer strictly based on the content above. If the information to answer is not explicitly present, respond with: "Sorry, I am unable to provide a helpful response."
 """
                 ai_response = ask_llama(ai_prompt)
-                if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(ai_response.strip()) < 10:
+                if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(
+                        ai_response.strip()) < 10:
                     return jsonify({
                         "status": "success",
                         "type": "ai",
@@ -488,7 +571,7 @@ Provide a direct and conversational answer strictly based on the content above. 
                     if "raw_data" in item:
                         formatted_crawl_data.append({"url": item["url"], "data": item["raw_data"]})
                     elif "error" in item:
-                        formatted_crawl_data.append({"url": url, "error": item["error"]})
+                        formatted_crawl_data.append({"url": item["url"], "error": item["error"]})
                 return jsonify({"status": "success", "type": crawl_type, "data": formatted_crawl_data})
             elif crawl_type == "crawl_ai":
                 all_text_content = ""
@@ -521,24 +604,22 @@ Website content:
 
 Provide a direct and conversational answer strictly based on the content above. If the information to answer is not explicitly present, respond with: "Sorry, I am unable to provide a helpful response."
 """
-                ai_response = ask_llama(ai_prompt)
-                if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(ai_response.strip()) < 10:
-                    return jsonify({
-                        "status": "success",
-                        "type": crawl_type,
-                        "ai_response": "I cannot provide a helpful response.",
-                        "ai_used": True
-                    })
-                else:
-                    return jsonify({
-                        "status": "success",
-                        "type": "ai",
-                        "ai_response": ai_response,
-                        "ai_used": True
-                    })
-            else:
-                return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
-
+                    ai_response = ask_llama(ai_prompt)
+                    if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(
+                            ai_response.strip()) < 10:
+                        return jsonify({
+                            "status": "success",
+                            "type": crawl_type,
+                            "ai_response": "I cannot provide a helpful response.",
+                            "ai_used": True
+                        })
+                    else:
+                        return jsonify({
+                            "status": "success",
+                            "type": "ai",
+                            "ai_response": ai_response,
+                            "ai_used": True
+                        })
         else:
             return jsonify({
                 "status": "error",
@@ -546,10 +627,15 @@ Provide a direct and conversational answer strictly based on the content above. 
             }), 400
 
     except Exception as e:
+        error_message = f"Internal server error in /scrape: {str(e)}"
+        logger.error(error_message)
+        print(error_message)
         return jsonify({
             "status": "error",
-            "error": f"Internal server error: {str(e)}"
+            "error": error_message
         }), 500
+
+
 
 @app.route('/get_stored_file/<unique_code>', methods=['GET'])
 @requires_auth
@@ -562,6 +648,7 @@ def get_stored_file(unique_code):
         return jsonify({"status": "success", "content": content})  # Return the array of objects
     else:
         return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
