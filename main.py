@@ -28,7 +28,7 @@ def check_auth(username, password):
 
 def authenticate():
     return make_response(
-        jsonify({"error": "Authentication required"}),
+        jsonify({"": "Authentication required"}),
         401,
         {'WWW-Authenticate': 'Basic realm="Login Required"'}
     )
@@ -53,7 +53,7 @@ def ask_llama(prompt):
         else:
             return None
     except Exception as e:
-        print(f"LLM error: {e}")
+        print(f"LLM : {e}")
         return None
 
 def get_stored_content(unique_code):
@@ -258,7 +258,7 @@ def process_crawl(base_url, crawl_type):
                 page_data["raw_data"] = result["data"]
             all_data.append(page_data)
         else:
-            print(f"Error scraping {current_url} during crawl: {result['error']}")
+            print(f" scraping {current_url} during crawl: {result['']}")
             all_data.append({"url": current_url, "error": result["error"]}) # Include error in response
 
     return all_data
@@ -524,7 +524,7 @@ def get_stored_file(unique_code):
     if content:
         return jsonify({"status": "success", "content": content})
     else:
-        return jsonify({"status": error", "error": f"Content not found for unique_code: {unique_code}"}), 404
+        return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
