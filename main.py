@@ -28,7 +28,7 @@ def check_auth(username, password):
 
 def authenticate():
     return make_response(
-        jsonify({"": "Authentication required"}),
+        jsonify({"error": "Authentication required"}),
         401,
         {'WWW-Authenticate': 'Basic realm="Login Required"'}
     )
@@ -37,7 +37,7 @@ def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth = request.authorization
-        if not auth or not check_auth(auth.username, auth.password):
+        if not auth or not check_auth(auth.username, auth.auth.password):
             return authenticate()
         return f(*args, **kwargs)
     return decorated
@@ -53,7 +53,7 @@ def ask_llama(prompt):
         else:
             return None
     except Exception as e:
-        print(f"LLM : {e}")
+        print(f"LLM error: {e}")
         return None
 
 def get_stored_content(unique_code):
@@ -206,21 +206,25 @@ def find_relevant_sentences(content, query, num_sentences=7, min_meaningful_word
         ]
     )
     query_tokens = [
-        w.lower() for w in re.findall(r"\b\w+\b", query) if w.isalnum() and w.lower() not in stop_words
-    ]
+        w.lower() for w in re.findall(r"\b\w+\b", query) if w.isalnum()
+    ]  # Keep stop words in query for matching
     if not query_tokens:
-        return []  # If no meaningful words in the query, return empty
+        return []
 
     sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
     sentence_scores = []
 
     for sentence in sentences:
         sentence_tokens = [
-            w.lower() for w in re.findall(r"\b\w+\b", sentence) if w.isalnum() and w.lower() not in stop_words
-        ]
-        common_meaningful_words = len(set(query_tokens).intersection(sentence_tokens))
-        if common_meaningful_words >= min_meaningful_word_match:
-            sentence_scores.append((sentence, common_meaningful_words))
+            w.lower() for w in re.findall(r"\b\w+\b", sentence) if w.isalnum()
+        ]  # Keep stop words in sentence for matching
+        meaningful_word_matches = 0
+        for query_word in query_tokens:
+            if query_word in sentence_tokens:
+                if query_word not in stop_words:
+                    meaningful_word_matches += 1
+        if meaningful_word_matches >= min_meaningful_word_match:
+            sentence_scores.append((sentence, meaningful_word_matches))
 
     sentence_scores.sort(key=lambda item: item[1], reverse=True)
     return [sentence for sentence, score in sentence_scores[:num_sentences]]
@@ -258,7 +262,7 @@ def process_crawl(base_url, crawl_type):
                 page_data["raw_data"] = result["data"]
             all_data.append(page_data)
         else:
-            print(f" scraping {current_url} during crawl: {result['']}")
+            print(f"Error scraping {current_url} during crawl: {result['error']}")
             all_data.append({"url": current_url, "error": result["error"]}) # Include error in response
 
     return all_data
@@ -338,7 +342,7 @@ Provide a direct and conversational answer **strictly based on the content above
 
             ai_response = ask_llama(ai_prompt)
             if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
-                return jsonify({"status": "success", "ai_response": "Sorry, I am unable to help you with this.", "ai_used": True})
+                return jsonify({"status": "success", "ai_response": "I cannot provide a helpful response.", "ai_used": True})
             else:
                 return jsonify({"status": "success", "ai_response": ai_response, "ai_used": True})
 
@@ -400,7 +404,7 @@ def scrape():
                 return jsonify({
                     "status": "success",
                     "type": "ai",
-                    "ai_response": "Sorry, I am unable to help you with this.",
+                    "ai_response": "I cannot provide a helpful response.",
                     "ai_used": False
                 })
             else:
@@ -419,7 +423,7 @@ Provide a direct and conversational answer **strictly based on the content above
                     return jsonify({
                         "status": "success",
                         "type": "ai",
-                        "ai_response": "Sorry, I am unable to help you with this.",
+                        "ai_response": "I cannot provide a helpful response.",
                         "ai_used": True
                     })
                 else:
@@ -470,7 +474,7 @@ Provide a direct and conversational answer **strictly based on the content above
                     return jsonify({
                         "status": "success",
                         "type": crawl_type,
-                        "ai_response": "Sorry, I am unable to help you with this.",
+                        "ai_response": "I cannot provide a helpful response.",
                         "ai_used": False
                     })
                 else:
@@ -489,7 +493,7 @@ Provide a direct and conversational answer **strictly based on the content above
                         return jsonify({
                             "status": "success",
                             "type": crawl_type,
-                            "ai_response": "Sorry, I am unable to help you with this.",
+                            "ai_response": "I cannot provide a helpful response.",
                             "ai_used": True
                         })
                     else:
@@ -528,4 +532,3 @@ def get_stored_file(unique_code):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-
