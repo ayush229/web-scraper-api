@@ -358,8 +358,10 @@ User question: "{user_query}"
         prompt_text += "Website content:\n"
         for i, content_obj in enumerate(relevant_content_objects):
             prompt_text += f"Site {i+1}:\n"
-            prompt_text += f"Heading:{content_obj['content'][0]['heading']}\n" # add heading
-            for para in content_obj['content'][0]['paragraphs']:
+            heading = content_obj.get('content', [{}])[0].get('heading', '') # Handle nested gets
+            prompt_text += f"Heading:{heading}\n"
+            paragraphs = content_obj.get('content', [{}])[0].get('paragraphs', []) # Handle nested gets
+            for para in paragraphs:
                 prompt_text += f"{para}\n"
 
         ai_response = ask_llama(prompt_text)
