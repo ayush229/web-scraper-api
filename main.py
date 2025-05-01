@@ -358,9 +358,18 @@ User question: "{user_query}"
         prompt_text += "Website content:\n"
         for i, content_obj in enumerate(relevant_content_objects):
             prompt_text += f"Site {i+1}:\n"
-            heading = content_obj.get('content', [{}])[0].get('heading', '') # Handle nested gets
+            print(f"Content Object {i+1}: {content_obj}")  # Debugging: Print the content object
+            content_list = content_obj.get('content', [])
+            print(f"Content List {i+1}: {content_list}")
+            if content_list:
+                first_content = content_list[0]
+                print(f"First Content {i+1}: {first_content}")
+                heading = first_content.get('heading', '')
+                paragraphs = first_content.get('paragraphs', [])
+            else:
+                heading = ''
+                paragraphs = []
             prompt_text += f"Heading:{heading}\n"
-            paragraphs = content_obj.get('content', [{}])[0].get('paragraphs', []) # Handle nested gets
             for para in paragraphs:
                 prompt_text += f"{para}\n"
 
@@ -512,21 +521,21 @@ Website content:
 
 Provide a direct and conversational answer strictly based on the content above. If the information to answer is not explicitly present, respond with: "Sorry, I am unable to provide a helpful response."
 """
-                    ai_response = ask_llama(ai_prompt)
-                    if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(ai_response.strip()) < 10:
-                        return jsonify({
-                            "status": "success",
-                            "type": crawl_type,
-                            "ai_response": "I cannot provide a helpful response.",
-                            "ai_used": True
-                        })
-                    else:
-                        return jsonify({
-                            "status": "success",
-                            "type": "ai",
-                            "ai_response": ai_response,
-                            "ai_used": True
-                        })
+                ai_response = ask_llama(ai_prompt)
+                if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(ai_response.strip()) < 10:
+                    return jsonify({
+                        "status": "success",
+                        "type": crawl_type,
+                        "ai_response": "I cannot provide a helpful response.",
+                        "ai_used": True
+                    })
+                else:
+                    return jsonify({
+                        "status": "success",
+                        "type": "ai",
+                        "ai_response": ai_response,
+                        "ai_used": True
+                    })
             else:
                 return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
 
