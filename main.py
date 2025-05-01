@@ -1,5 +1,3 @@
-# main.py
-
 from flask import Flask, request, jsonify, make_response
 from functools import wraps
 from scraper import scrape_website, crawl_website
@@ -68,7 +66,6 @@ def ask_llama(prompt):
         return None
 
 
-
 def get_stored_content(unique_code):
     filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
     if os.path.exists(filepath):
@@ -82,7 +79,6 @@ def get_stored_content(unique_code):
             print(error_message)
             return None  # Handle the error, return None or an empty list
     return None
-
 
 
 def find_relevant_content(content_array, query):
@@ -266,7 +262,6 @@ def find_relevant_content(content_array, query):
     return relevant_content, only_stop_words
 
 
-
 def process_crawl(base_url, crawl_type):
     visited = set()
     to_visit = [base_url]
@@ -314,7 +309,6 @@ def process_crawl(base_url, crawl_type):
     return all_data
 
 
-
 @app.route('/scrape_and_store', methods=['POST'])
 @requires_auth
 def scrape_and_store():
@@ -338,8 +332,10 @@ def scrape_and_store():
             page_data = {"url": url, "content": []}
             if "sections" in result["data"]:
                 for section in result["data"]["sections"]:
+                    heading_data = section.get("heading")
+                    heading_text = heading_data.get("text", "") if isinstance(heading_data, dict) else ""
                     section_content = {
-                        "heading": section.get("heading", {}).get("text", ""),  # handle if heading is None
+                        "heading": heading_text,
                         "paragraphs": section.get("content", [])
                     }
                     page_data["content"].append(section_content)
@@ -375,7 +371,6 @@ def scrape_and_store():
         logger.error(error_message)
         print(error_message)
         return jsonify({"status": "error", "error": error_message}), 500
-
 
 
 @app.route('/ask_stored', methods=['POST'])
@@ -454,13 +449,12 @@ User question: "{user_query}"
         return jsonify({"status": "error", "error": error_message}), 500
 
 
-
 @app.route('/scrape', methods=['GET', 'POST'])
 @requires_auth
 def scrape():
     try:
         if request.method == 'GET':
-            urls_str = request.args.get('url')
+        urls_str = request.args.get('url')
             content_type = request.args.get('type', 'beautify')
             user_query = request.args.get('user_query', '')
         else:
@@ -634,7 +628,6 @@ Provide a direct and conversational answer strictly based on the content above. 
             "status": "error",
             "error": error_message
         }), 500
-
 
 
 @app.route('/get_stored_file/<unique_code>', methods=['GET'])
