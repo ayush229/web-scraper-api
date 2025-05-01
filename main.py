@@ -13,6 +13,7 @@ import traceback # Import traceback for detailed error logging
 import json # Import json at the top
 
 app = Flask(__name__)
+CORS(app, origins=["https://agent-ai-production-679d.up.railway.app/"], supports_credentials=True, methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"]) # <--- Add this line here!
 
 # --- Configuration ---
 AUTH_USERNAME = "ayush1"
