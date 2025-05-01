@@ -177,30 +177,30 @@ def ask_stored():
         relevant_sentences = find_relevant_sentences(stored_content, user_query)
 
         if not relevant_sentences:
-            ai_prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly based on your understanding. If the information isn't readily available, simply respond with "Sorry, I don't have that information."
+            ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question based on your understanding. If you don't have the information, simply say, "I'm sorry, I don't have that information."
 
 User question: "{user_query}"
 
-Website context (for reference):
+(The following is context that might be helpful, but your answer should sound like it comes from your own knowledge):
 \"\"\"{stored_content}\"\"\"
 
-Provide a direct and conversational answer to the user's question.
+Provide a direct and conversational answer.
 """
         else:
             relevant_content = "\n".join(relevant_sentences)
-            ai_prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly, drawing from the following relevant context. If the information isn't explicitly within this context, simply respond with "Sorry, I don't have that specific detail."
+            ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question, drawing upon your understanding. If the specific details are not something you readily know, please say, "I'm sorry, I don't have that specific detail."
 
 User question: "{user_query}"
 
-Relevant website snippets:
+(The following are relevant snippets that might inform your answer, but your response should sound natural):
 \"\"\"{relevant_content}\"\"\"
 
-Provide a direct and conversational answer to the user's question.
+Provide a direct and conversational answer.
 """
 
         ai_response = ask_llama(ai_prompt)
         if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-            ai_response = "Sorry, I don't have that specific detail."
+            ai_response = "I'm sorry, I don't have that specific detail."
 
         return jsonify({"status": "success", "ai_response": ai_response})
 
@@ -255,18 +255,18 @@ def scrape():
                         for para in sec.get("content", []):
                             combined_text += f"\n{para}"
 
-            prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly based on your understanding of the following website content. If the information isn't readily available, simply respond with "Sorry, I don't have that information."
+            prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question based on your understanding of the following website content. If you don't have the information, simply say, "I'm sorry, I don't have that information."
 
 User question: "{user_query}"
 
-Website context (for reference):
+(The following is context that might be helpful, but your answer should sound like it comes from your own knowledge):
 \"\"\"{combined_text}\"\"\"
 
-Provide a direct and conversational answer to the user's question.
+Provide a direct and conversational answer.
 """
             ai_response = ask_llama(prompt)
             if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                ai_response = "Sorry, I don't have that information."
+                ai_response = "I'm sorry, I don't have that information."
             return jsonify({
                 "status": "success",
                 "type": "ai",
@@ -306,18 +306,18 @@ Provide a direct and conversational answer to the user's question.
                             for para in section.get("paragraphs", []):
                                 all_text_content += f"\n{para}"
 
-                prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly based on your understanding of the following website content. If the information isn't readily available, simply respond with "Sorry, I don't have that information."
+                prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question based on your understanding of the following website content. If you don't have the information, simply say, "I'm sorry, I don't have that information."
 
 User question: "{user_query}"
 
-Website context (for reference):
+(The following is context that might be helpful, but your answer should sound like it comes from your own knowledge):
 \"\"\"{all_text_content}\"\"\"
 
-Provide a direct and conversational answer to the user's question.
+Provide a direct and conversational answer.
 """
                 ai_response = ask_llama(ai_prompt)
                 if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                    ai_response = "Sorry, I don't have that information."
+                    ai_response = "I'm sorry, I don't have that information."
                 return jsonify({"status": "success", "type": crawl_type, "ai_response": ai_response})
             else:
                 return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
