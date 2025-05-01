@@ -177,30 +177,30 @@ def ask_stored():
         relevant_sentences = find_relevant_sentences(stored_content, user_query)
 
         if not relevant_sentences:
-            ai_prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided website content. If the answer is not found, respond with "Sorry, not found." Do not mention that the information is from the provided content.
+            ai_prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly based on your understanding. If the information isn't readily available, simply respond with "Sorry, I don't have that information."
 
-User query: "{user_query}"
+User question: "{user_query}"
 
-Website content:
+Website context (for reference):
 \"\"\"{stored_content}\"\"\"
 
-Answer the user's query directly. If the answer is not present, just say "Sorry, not found." Do not use phrases like "as per the provided content" or similar.
+Provide a direct and conversational answer to the user's question.
 """
         else:
             relevant_content = "\n".join(relevant_sentences)
-            ai_prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the following relevant snippets from the website content. If the answer is not found, respond with "Sorry, not found." Do not mention that the information is from the provided snippets.
+            ai_prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly, drawing from the following relevant context. If the information isn't explicitly within this context, simply respond with "Sorry, I don't have that specific detail."
 
-User query: "{user_query}"
+User question: "{user_query}"
 
 Relevant website snippets:
 \"\"\"{relevant_content}\"\"\"
 
-Answer the user's query directly. If the answer is not found within these snippets, just say "Sorry, not found." Do not use phrases like "based on the snippets" or similar.
+Provide a direct and conversational answer to the user's question.
 """
 
         ai_response = ask_llama(ai_prompt)
-        if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-            ai_response = "Sorry, not found"
+        if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
+            ai_response = "Sorry, I don't have that specific detail."
 
         return jsonify({"status": "success", "ai_response": ai_response})
 
@@ -255,18 +255,18 @@ def scrape():
                         for para in sec.get("content", []):
                             combined_text += f"\n{para}"
 
-            prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely with some conversational reply based on the provided website content from multiple URLs. If the answer is not found, respond with "Sorry, not found." Do not mention that the information is from the provided content.
+            prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly based on your understanding of the following website content. If the information isn't readily available, simply respond with "Sorry, I don't have that information."
 
-User query: "{user_query}"
+User question: "{user_query}"
 
-Website content:
+Website context (for reference):
 \"\"\"{combined_text}\"\"\"
 
-Answer the user's query directly. If the answer is not present, just say "Sorry, not found." Do not use phrases like "based on the content" or similar.
+Provide a direct and conversational answer to the user's question.
 """
             ai_response = ask_llama(prompt)
-            if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                ai_response = "Sorry, not found"
+            if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
+                ai_response = "Sorry, I don't have that information."
             return jsonify({
                 "status": "success",
                 "type": "ai",
@@ -306,18 +306,18 @@ Answer the user's query directly. If the answer is not present, just say "Sorry,
                             for para in section.get("paragraphs", []):
                                 all_text_content += f"\n{para}"
 
-                prompt = f"""You are an intelligent assistant. Use the following website content to answer the user's query directly and concisely with some conversational reply. If the answer is not found, respond with "Sorry, not found." Do not mention that the information is from the provided content.
+                prompt = f"""You are a helpful and knowledgeable agent. Please answer the user's question directly based on your understanding of the following website content. If the information isn't readily available, simply respond with "Sorry, I don't have that information."
 
-User query: "{user_query}"
+User question: "{user_query}"
 
-Website content:
+Website context (for reference):
 \"\"\"{all_text_content}\"\"\"
 
-Answer the user's query directly. If the answer is not present, just say "Sorry, not found." Do not use phrases like "based on the content" or similar.
+Provide a direct and conversational answer to the user's question.
 """
-                ai_response = ask_llama(prompt)
-                if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
-                    ai_response = "Sorry, not found"
+                ai_response = ask_llama(ai_prompt)
+                if not ai_response or "Sorry, I don't have that" in ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
+                    ai_response = "Sorry, I don't have that information."
                 return jsonify({"status": "success", "type": crawl_type, "ai_response": ai_response})
             else:
                 return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
