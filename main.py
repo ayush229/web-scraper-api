@@ -8,6 +8,7 @@ import os
 from together import Together
 from urllib.parse import urlparse, urljoin
 import uuid
+import re
 
 app = Flask(__name__)
 
@@ -55,20 +56,33 @@ def ask_llama(prompt):
         print(f"LLM error: {e}")
         return None
 
-def extract_text_from_section(section):
-    text = ""
-    if section.get("heading") and section["heading"].get("text"):
-        text += f"{section['heading']['text']} "
-    for para in section.get("content", []):
-        text += f"{para} "
-    return text.strip().lower()
-
 def get_stored_content(unique_code):
     filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
     return None
+
+def find_relevant_sentences(content, query, num_sentences=5):
+    """
+    Finds sentences in the content that are most relevant to the query.
+    A simple keyword-based approach is used here. You could integrate more
+    advanced semantic search techniques if needed.
+    """
+    query_words = set(query.lower().split())
+    sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
+    sentence_scores = []
+
+    for sentence in sentences:
+        sentence = sentence.lower()
+        score = 0
+        for word in query_words:
+            if word in sentence:
+                score += 1
+        sentence_scores.append((sentence, score))
+
+    sentence_scores.sort(key=lambda item: item[1], reverse=True)
+    return [sentence for sentence, score in sentence_scores[:num_sentences]]
 
 def process_crawl(base_url, crawl_type):
     visited = set()
@@ -145,8 +159,6 @@ def scrape_and_store():
     except Exception as e:
         return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
 
-
-
 @app.route('/ask_stored', methods=['POST'])
 @requires_auth
 def ask_stored():
@@ -164,7 +176,10 @@ def ask_stored():
         if not stored_content:
             return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
 
-        prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided stored website content.
+        # Find relevant sentences
+        relevant_sentences = find_relevant_sentences(stored_content, user_query)
+        if not relevant_sentences:
+            ai_prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the provided stored website content.
 
 User query: "{user_query}"
 
@@ -174,7 +189,20 @@ Website content:
 Answer the user's query directly with some conversational reply. If the answer is not found within the content, or if the query is irrelevant to the content, respond with: "Sorry, not found."
 Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
 """
-        ai_response = ask_llama(prompt)
+        else:
+            relevant_content = "\n".join(relevant_sentences)
+            ai_prompt = f"""You are an intelligent assistant. Your goal is to answer the user's query directly and concisely based on the following relevant snippets from the website content.
+
+User query: "{user_query}"
+
+Relevant website snippets:
+\"\"\"{relevant_content}\"\"\"
+
+Answer the user's query directly with some conversational reply. If the answer is not found within these snippets, or if the query is irrelevant to them, respond with: "Sorry, not found."
+Do not include introductory phrases like "To find...", "According to...", or similar language. Just provide the direct answer if found.
+"""
+
+        ai_response = ask_llama(ai_prompt)
         if not ai_response or "Sorry, not found" in ai_response or len(ai_response.strip()) < 10:
             ai_response = "Sorry, not found"
 
