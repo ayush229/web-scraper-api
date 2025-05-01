@@ -358,4 +358,43 @@ Provide a direct and conversational answer **strictly based on the content above
                     if not ai_response or "Sorry, I am unable to help you with this" in ai_response or len(ai_response.strip()) < 10:
                         return jsonify({
                             "status": "success",
-                            "type": crawl
+                            "type": crawl_type,
+                            "ai_response": "Sorry, I am unable to help you with this.",
+                            "ai_used": True
+                        })
+                    else:
+                        return jsonify({
+                            "status": "success",
+                            "type": crawl_type,
+                            "ai_response": ai_response,
+                            "ai_used": True
+                        })
+            else:
+                return jsonify({"status": "error", "error": "Invalid crawl type."}), 400
+
+        else:
+            return jsonify({
+                "status": "error",
+                "error": "Invalid type parameter."
+            }), 400
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": f"Internal server error: {str(e)}"
+        }), 500
+
+@app.route('/get_stored_file/<unique_code>', methods=['GET'])
+@requires_auth
+def get_stored_file(unique_code):
+    """
+    Retrieves the content of a stored text file based on its unique code.
+    """
+    content = get_stored_content(unique_code)
+    if content:
+        return jsonify({"status": "success", "content": content})
+    else:
+        return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
