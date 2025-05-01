@@ -60,14 +60,23 @@ def get_stored_content(unique_code):
     filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
+            import json
+            return json.loads(f.read())  # Load the JSON data
     return None
 
-def find_relevant_sentences(content, query, num_sentences=7, min_meaningful_word_match=1):
+def find_relevant_content(content_array, query):
     """
-    Finds sentences in the content that are relevant to the query based on meaningful words,
-    without using NLTK.  It requires at least 'min_meaningful_word_match' meaningful words
-    from the query to be present in a sentence.
+    Finds content objects that are relevant to the query.
+
+    Args:
+        content_array:  A list of content objects, where each object
+                        has a 'text' key.
+        query:          The user's query string.
+
+    Returns:
+        A tuple:
+        - A list of relevant content objects.
+        - A boolean indicating if only stop words were matched.
     """
     stop_words = set(
         [
@@ -207,27 +216,27 @@ def find_relevant_sentences(content, query, num_sentences=7, min_meaningful_word
     )
     query_tokens = [
         w.lower() for w in re.findall(r"\b\w+\b", query) if w.isalnum()
-    ]  # Keep stop words in query for matching
-    if not query_tokens:
-        return []
+    ]
+    relevant_content = []
+    only_stop_words = True
 
-    sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
-    sentence_scores = []
-
-    for sentence in sentences:
-        sentence_tokens = [
-            w.lower() for w in re.findall(r"\b\w+\b", sentence) if w.isalnum()
-        ]  # Keep stop words in sentence for matching
-        meaningful_word_matches = 0
+    for content_obj in content_array:
+        text = content_obj.get('text', '')  # Ensure 'text' key exists
+        content_tokens = [
+            w.lower() for w in re.findall(r"\b\w+\b", text) if w.isalnum()
+        ]
+        has_meaningful_match = False
         for query_word in query_tokens:
-            if query_word in sentence_tokens:
+            if query_word in content_tokens:
                 if query_word not in stop_words:
-                    meaningful_word_matches += 1
-        if meaningful_word_matches >= min_meaningful_word_match:
-            sentence_scores.append((sentence, meaningful_word_matches))
+                    has_meaningful_match = True
+                    only_stop_words = False
+                    break  # Found a meaningful word, no need to check others for this content
 
-    sentence_scores.sort(key=lambda item: item[1], reverse=True)
-    return [sentence for sentence, score in sentence_scores[:num_sentences]]
+        if has_meaningful_match:
+            relevant_content.append(content_obj)
+
+    return relevant_content, only_stop_words
 
 
 
@@ -272,34 +281,42 @@ def process_crawl(base_url, crawl_type):
 def scrape_and_store():
     try:
         data = request.get_json(force=True) or {}
-        urls_str = data.get('url')  # Changed to get 'url' which should be a comma-separated string
+        urls_str = data.get('url')
         if not urls_str:
             return jsonify({"status": "error", "error": "URL parameter is required"}), 400
 
-        urls = [url.strip() for url in urls_str.split(',') if url.strip()]  # Split the string into a list of URLs
+        urls = [url.strip() for url in urls_str.split(',') if url.strip()]
 
-        combined_text = ""
+        results = []
         for url in urls:
             result = scrape_website(url, 'beautify')
             if result["status"] == "error":
-                return jsonify({"status": "error", "error": f"Error scraping {url}: {result['error']}"}), 500  # Return error for individual URL
+                return jsonify({"status": "error", "error": f"Error scraping {url}: {result['error']}"}), 500
 
-            try:
-                if "sections" in result["data"]:
-                    sections = result["data"]["sections"]
-                    for sec in sections:
-                        if sec.get("heading") and sec["heading"].get("text"):
-                            combined_text += f"\n\n{sec['heading']['text']}"
-                        for para in sec.get("content", []):
-                            combined_text += f"\n{para}"
-            except Exception as e:
-                print(f"Content parsing failed for storage for url {url}: {e}")
-                combined_text += result.get("data", "") # Fallback
+            page_data = {"url": url, "content": []}
+            if "sections" in result["data"]:
+                for section in result["data"]["sections"]:
+                    section_content = {
+                        "heading": section.get("heading", {}).get("text", ""),  #handle if heading is None
+                        "paragraphs": section.get("content", [])
+                    }
+                    page_data["content"].append(section_content)
+            else:
+                page_data["content"] = [{"heading": "", "paragraphs": [result.get("data", "")]}]
+
+            # Extract text for storage
+            text_content = ""
+            for item in page_data["content"]:
+                text_content += item["heading"] + "\n" + "\n".join(item["paragraphs"])
+            page_data["text"] = text_content
+
+            results.append(page_data)
 
         unique_code = str(uuid.uuid4())
         filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
         with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(combined_text)
+            import json
+            f.write(json.dumps(results, ensure_ascii=False, indent=4))  # Store as JSON
 
         return jsonify({"status": "success", "unique_code": unique_code})
 
@@ -323,28 +340,33 @@ def ask_stored():
         if not stored_content:
             return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
 
-        # Find relevant sentences based on meaningful words
-        relevant_sentences = find_relevant_sentences(stored_content, user_query)
+        # Find relevant content objects
+        relevant_content_objects, only_stop_words_matched = find_relevant_content(stored_content, user_query)
 
-        if not relevant_sentences:
+        if only_stop_words_matched:
             return jsonify({"status": "success", "ai_response": "I cannot provide a helpful response.", "ai_used": False})
-        else:
-            relevant_content = "\n".join(relevant_sentences)
-            ai_prompt = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question.
+
+        if not relevant_content_objects:
+            return jsonify({"status": "success", "ai_response": "I cannot provide a helpful response.", "ai_used": False})
+
+        # Prepare prompt for AI
+        prompt_text = f"""As a knowledgeable agent, please provide a direct and conversational answer to the user's question.  Use the information provided.  Do not say that you are using the provided information.
 
 User question: "{user_query}"
 
-Relevant website snippets:
-\"\"\"{relevant_content}\"\"\"
-
-Provide a direct and conversational answer strictly based on the content above. If the information to answer is not explicitly present, respond with: "Sorry, I am unable to provide a helpful response."
 """
+        prompt_text += "Website content:\n"
+        for i, content_obj in enumerate(relevant_content_objects):
+            prompt_text += f"Site {i+1}:\n"
+            prompt_text += f"Heading:{content_obj['content'][0]['heading']}\n" # add heading
+            for para in content_obj['content'][0]['paragraphs']:
+                prompt_text += f"{para}\n"
 
-            ai_response = ask_llama(ai_prompt)
-            if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(ai_response.strip()) < 10:
-                return jsonify({"status": "success", "ai_response": "I cannot provide a helpful response.", "ai_used": True})
-            else:
-                return jsonify({"status": "success", "ai_response": ai_response, "ai_used": True})
+        ai_response = ask_llama(prompt_text)
+        if not ai_response or "Sorry, I am unable to provide a helpful response." in ai_response or len(ai_response.strip()) < 10:
+            return jsonify({"status": "success", "ai_response": "I cannot provide a helpful response.", "ai_used": True})
+        else:
+            return jsonify({"status": "success", "ai_response": ai_response, "ai_used": True})
 
     except Exception as e:
         return jsonify({"status": "error", "error": f"Internal server error: {str(e)}"}), 500
@@ -455,7 +477,7 @@ Provide a direct and conversational answer strictly based on the content above. 
                     if "raw_data" in item:
                         formatted_crawl_data.append({"url": item["url"], "data": item["raw_data"]})
                     elif "error" in item:
-                        formatted_crawl_data.append({"url": item["url"], "error": item["error"]})
+                        formatted_crawl_data.append({"url": url, "error": item["error"]})
                 return jsonify({"status": "success", "type": crawl_type, "data": formatted_crawl_data})
             elif crawl_type == "crawl_ai":
                 all_text_content = ""
@@ -499,7 +521,7 @@ Provide a direct and conversational answer strictly based on the content above. 
                     else:
                         return jsonify({
                             "status": "success",
-                            "type": crawl_type,
+                            "type": "ai",
                             "ai_response": ai_response,
                             "ai_used": True
                         })
@@ -526,7 +548,7 @@ def get_stored_file(unique_code):
     """
     content = get_stored_content(unique_code)
     if content:
-        return jsonify({"status": "success", "content": content})
+        return jsonify({"status": "success", "content": content})  # Return the array of objects
     else:
         return jsonify({"status": "error", "error": f"Content not found for unique_code: {unique_code}"}), 404
 
