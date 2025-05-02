@@ -11,7 +11,7 @@ COPY . .
 RUN pip install --no-cache-dir flask flask-cors together
 
 # Expose the port Flask runs on
-EXPOSE 8000
+EXPOSE 8080
 
 # Start the Flask application
 CMD ["python", "main.py"]
