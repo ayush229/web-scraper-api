@@ -14,7 +14,7 @@ import json # Import json at the top
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, origins=["https://agent-ai-production-679d.up.railway.app"], supports_credentials=True, methods=["GET", "POST", "OPTIONS", "PUT", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type"]) # <--- Add this line here!
+CORS(app, resources={r"/*": {"origins": "https://agent-ai-production-679d.up.railway.app"}}, supports_credentials=True, allow_headers=["Content-Type", "Authorization"], methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]) # <--- Add this line here!
 
 # --- Configuration ---
 AUTH_USERNAME = "ayush1"
