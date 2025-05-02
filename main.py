@@ -955,11 +955,7 @@ def get_stored_file(unique_code):
 
 
 # --- Main Execution ---
-if __name__ == '__main__':
-    print(f"Starting Flask server on host 0.0.0.0 port 8000")
-    print(f"Serving scraped data from: {os.path.abspath(SCRAPED_DATA_DIR)}")
-    # Use waitress or gunicorn for production instead of app.run()
-    # Example (run `pip install waitress` first):
-    # from waitress import serve
-    # serve(app, host='0.0.0.0', port=8000)
-    app.run(host='0.0.0.0', port=8000, debug=False) # Turn debug off for production/stability
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", 8080))  # Railway sets PORT env
+    app.run(host="0.0.0.0", port=port)
