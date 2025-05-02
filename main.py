@@ -822,134 +822,256 @@ def get_all_agents():
 
 
 @app.route('/agents/<unique_code>', methods=['PUT'])
-# @requires_auth # <--- Keep this commented out for testing CORS preflight
-@cross_origin(origins=["https://agent-ai-production-679d.up.railway.app"], supports_credentials=True, methods=["PUT", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
+
+@requires_auth
+
 def update_agent(unique_code):
-    """
-    Updates an existing agent by re-scraping a new list of URLs.
-    Keeps the original agent name. Replaces URLs and scraped content.
-    """
-    filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
 
-    # 1. Check if agent exists and get original name
-    if not os.path.exists(filepath):
-        logger.warning(f"Update request failed: Agent with code {unique_code} not found.")
-        return jsonify({"status": "error", "error": f"Agent with unique_code {unique_code} not found"}), 404
+    """
 
-    original_agent_name = "Unknown" # Default
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            existing_data = json.load(f)
-            original_agent_name = existing_data.get("agent_name", original_agent_name)
-    except Exception as e:
-        logger.error(f"Error reading existing agent data for {unique_code} during update: {e}. Proceeding with default name.")
-        # Decide if you want to proceed or fail here
-        # return jsonify({"status": "error", "error": "Could not read existing agent data"}), 500
+    Updates an existing agent by re-scraping a new list of URLs.
+
+    Keeps the original agent name. Replaces URLs and scraped content.
+
+    """
+
+    filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
 
 
-    # 2. Get new URLs from request body
-    try:
-        data = request.get_json(force=True) or {}
-        urls_str = data.get('url')
-        if not urls_str:
-            return jsonify({"status": "error", "error": "New 'url' parameter (comma-separated string) is required in the request body"}), 400
 
-        new_urls = [url.strip() for url in urls_str.split(',') if url.strip()]
-        if not new_urls:
-            return jsonify({"status": "error", "error": "No valid new URLs provided"}), 400
+    # 1. Check if agent exists and get original name
 
-        logger.info(f"Update request for agent '{original_agent_name}' ({unique_code}) with new URLs: {new_urls}")
+    if not os.path.exists(filepath):
 
-    except Exception as e:
-        logger.error(f"Error parsing JSON for agent update {unique_code}: {e}")
-        return jsonify({"status": "error", "error": "Invalid JSON payload for update"}), 400
+        logger.warning(f"Update request failed: Agent with code {unique_code} not found.")
 
-    # 3. Scrape new URLs
-    results = []
-    scrape_errors = []
-    for url in new_urls:
-        logger.info(f"Updating agent {unique_code}: Scraping {url}")
-        result = scrape_website(url, 'beautify') # Use beautify for consistent structure
-        if result["status"] == "error":
-            error_message = f"Error scraping {url} during update: {result.get('error', 'Unknown error')}"
-            logger.error(error_message)
-            scrape_errors.append({"url": url, "error": result.get('error', 'Unknown error')})
-            continue # Continue with other URLs
-
-        page_data = {"url": url, "content": []}
-        scrape_data = result.get("data")
-
-        if isinstance(scrape_data, dict) and "sections" in scrape_data:
-             for section in scrape_data.get("sections", []):
-                heading_data = section.get("heading")
-                heading_text = heading_data.get("text", "") if isinstance(heading_data, dict) else heading_data
-                section_content = {
-                    "heading": heading_text or None,
-                    "paragraphs": section.get("content", [])
-                }
-                page_data["content"].append(section_content)
-        elif isinstance(scrape_data, str) and scrape_data:
-             page_data["content"] = [{"heading": None, "paragraphs": [scrape_data]}]
-
-        results.append(page_data)
+        return jsonify({"status": "error", "error": f"Agent with unique_code {unique_code} not found"}), 404
 
 
-    # 4. Prepare data structure for overwriting
-    data_to_store = {
-        "agent_name": original_agent_name, # Keep original name
-        "urls": new_urls, # Store the NEW list of URLs
-        "results": results,
-        "errors": scrape_errors # Include errors encountered during this update scrape
-    }
 
-    # 5. Overwrite the file
-    try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data_to_store, f, ensure_ascii=False, indent=4)
-        logger.info(f"Successfully updated agent {unique_code} ('{original_agent_name}') with new content.")
-        return jsonify({
-            "status": "success",
-            "message": f"Agent {unique_code} updated successfully.",
-            "unique_code": unique_code,
-            "agent_name": original_agent_name,
-            "updated_urls": new_urls,
-            "scrape_errors": scrape_errors
-            })
+    original_agent_name = "Unknown" # Default
 
-    except Exception as e:
-        error_message = f"Error overwriting agent data file {filepath}: {e}"
-        logger.error(error_message)
-        print(error_message)
-        return jsonify({"status": "error", "error": "Failed to save updated agent data"}), 500
+    try:
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+
+            existing_data = json.load(f)
+
+            original_agent_name = existing_data.get("agent_name", original_agent_name)
+
+    except Exception as e:
+
+        logger.error(f"Error reading existing agent data for {unique_code} during update: {e}. Proceeding with default name.")
+
+        # Decide if you want to proceed or fail here
+
+        # return jsonify({"status": "error", "error": "Could not read existing agent data"}), 500
+
+
+
+
+
+    # 2. Get new URLs from request body
+
+    try:
+
+        data = request.get_json(force=True) or {}
+
+        urls_str = data.get('url')
+
+        if not urls_str:
+
+            return jsonify({"status": "error", "error": "New 'url' parameter (comma-separated string) is required in the request body"}), 400
+
+
+
+        new_urls = [url.strip() for url in urls_str.split(',') if url.strip()]
+
+        if not new_urls:
+
+            return jsonify({"status": "error", "error": "No valid new URLs provided"}), 400
+
+
+
+        logger.info(f"Update request for agent '{original_agent_name}' ({unique_code}) with new URLs: {new_urls}")
+
+
+
+    except Exception as e:
+
+        logger.error(f"Error parsing JSON for agent update {unique_code}: {e}")
+
+        return jsonify({"status": "error", "error": "Invalid JSON payload for update"}), 400
+
+
+
+    # 3. Scrape new URLs
+
+    results = []
+
+    scrape_errors = []
+
+    for url in new_urls:
+
+        logger.info(f"Updating agent {unique_code}: Scraping {url}")
+
+        result = scrape_website(url, 'beautify') # Use beautify for consistent structure
+
+        if result["status"] == "error":
+
+            error_message = f"Error scraping {url} during update: {result.get('error', 'Unknown error')}"
+
+            logger.error(error_message)
+
+            scrape_errors.append({"url": url, "error": result.get('error', 'Unknown error')})
+
+            continue # Continue with other URLs
+
+
+
+        page_data = {"url": url, "content": []}
+
+        scrape_data = result.get("data")
+
+
+
+        if isinstance(scrape_data, dict) and "sections" in scrape_data:
+
+             for section in scrape_data.get("sections", []):
+
+                 heading_data = section.get("heading")
+
+                 heading_text = heading_data.get("text", "") if isinstance(heading_data, dict) else heading_data
+
+                 section_content = {
+
+                     "heading": heading_text or None,
+
+                     "paragraphs": section.get("content", [])
+
+                 }
+
+                 page_data["content"].append(section_content)
+
+        elif isinstance(scrape_data, str) and scrape_data:
+
+             page_data["content"] = [{"heading": None, "paragraphs": [scrape_data]}]
+
+
+
+        results.append(page_data)
+
+
+
+
+
+    # 4. Prepare data structure for overwriting
+
+    data_to_store = {
+
+        "agent_name": original_agent_name, # Keep original name
+
+        "urls": new_urls, # Store the NEW list of URLs
+
+        "results": results,
+
+        "errors": scrape_errors # Include errors encountered during this update scrape
+
+    }
+
+
+
+    # 5. Overwrite the file
+
+    try:
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+
+            json.dump(data_to_store, f, ensure_ascii=False, indent=4)
+
+        logger.info(f"Successfully updated agent {unique_code} ('{original_agent_name}') with new content.")
+
+        return jsonify({
+
+            "status": "success",
+
+            "message": f"Agent {unique_code} updated successfully.",
+
+            "unique_code": unique_code,
+
+            "agent_name": original_agent_name,
+
+            "updated_urls": new_urls,
+
+            "scrape_errors": scrape_errors
+
+            })
+
+
+
+    except Exception as e:
+
+        error_message = f"Error overwriting agent data file {filepath}: {e}"
+
+        logger.error(error_message)
+
+        print(error_message)
+
+        return jsonify({"status": "error", "error": "Failed to save updated agent data"}), 500
+
+
+
 
 
 @app.route('/agents/<unique_code>', methods=['DELETE'])
-# @requires_auth # <--- Keep this commented out for testing CORS preflight
-@cross_origin(origins=["https://agent-ai-production-679d.up.railway.app"], supports_credentials=True, methods=["PUT", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
+
+@requires_auth
+
 def delete_agent(unique_code):
-    """Deletes the stored data file for a specific agent."""
-    filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
-    logger.info(f"Delete request received for agent code: {unique_code}")
 
-    if not os.path.exists(filepath):
-        logger.warning(f"Deletion failed: Agent with code {unique_code} not found at {filepath}.")
-        return jsonify({"status": "error", "error": f"Agent with unique_code {unique_code} not found"}), 404
+    """Deletes the stored data file for a specific agent."""
 
-    try:
-        os.remove(filepath)
-        logger.info(f"Successfully deleted agent data file: {filepath}")
-        return jsonify({"status": "success", "message": f"Agent {unique_code} deleted successfully."}), 200 # OK or 204 No Content
-    except OSError as e:
-        error_message = f"Error deleting agent data file {filepath}: {e}"
-        logger.error(error_message)
-        print(error_message)
-        return jsonify({"status": "error", "error": "Failed to delete agent data file"}), 500
-    except Exception as e:
-         error_message = f"Unexpected error during agent deletion {unique_code}: {e}\n{traceback.format_exc()}"
-         logger.error(error_message)
-         print(error_message)
-         return jsonify({"status": "error", "error": "An unexpected error occurred during deletion"}), 500
+    filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
 
+    logger.info(f"Delete request received for agent code: {unique_code}")
+
+
+
+    if not os.path.exists(filepath):
+
+        logger.warning(f"Deletion failed: Agent with code {unique_code} not found at {filepath}.")
+
+        return jsonify({"status": "error", "error": f"Agent with unique_code {unique_code} not found"}), 404
+
+
+
+    try:
+
+        os.remove(filepath)
+
+        logger.info(f"Successfully deleted agent data file: {filepath}")
+
+        return jsonify({"status": "success", "message": f"Agent {unique_code} deleted successfully."}), 200 # OK or 204 No Content
+
+    except OSError as e:
+
+        error_message = f"Error deleting agent data file {filepath}: {e}"
+
+        logger.error(error_message)
+
+        print(error_message)
+
+        return jsonify({"status": "error", "error": "Failed to delete agent data file"}), 500
+
+    except Exception as e:
+
+         error_message = f"Unexpected error during agent deletion {unique_code}: {e}\n{traceback.format_exc()}"
+
+         logger.error(error_message)
+
+         print(error_message)
+
+         return jsonify({"status": "error", "error": "An unexpected error occurred during deletion"}), 500
 
 @app.route('/get_stored_file/<unique_code>', methods=['GET'])
 @requires_auth
