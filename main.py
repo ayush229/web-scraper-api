@@ -11,7 +11,7 @@ import uuid
 import re
 import traceback # Import traceback for detailed error logging
 import json # Import json at the top
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 
 app = Flask(__name__)
 CORS(app, origins=["https://agent-ai-production-679d.up.railway.app","https://agent-ai-production-679d.up.railway.app/agent"], supports_credentials=True, methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"]) # <--- Add this line here!
@@ -822,7 +822,8 @@ def get_all_agents():
 
 
 @app.route('/agents/<unique_code>', methods=['PUT'])
-# @requires_auth # <--- Commented out for testing CORS preflight
+# @requires_auth # <--- Keep this commented out for testing CORS preflight
+@cross_origin(origins=["https://agent-ai-production-679d.up.railway.app"], supports_credentials=True, methods=["PUT", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
 def update_agent(unique_code):
     """
     Updates an existing agent by re-scraping a new list of URLs.
@@ -923,7 +924,8 @@ def update_agent(unique_code):
 
 
 @app.route('/agents/<unique_code>', methods=['DELETE'])
-# @requires_auth # <--- Commented out for testing CORS preflight
+# @requires_auth # <--- Keep this commented out for testing CORS preflight
+@cross_origin(origins=["https://agent-ai-production-679d.up.railway.app"], supports_credentials=True, methods=["PUT", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
 def delete_agent(unique_code):
     """Deletes the stored data file for a specific agent."""
     filepath = os.path.join(SCRAPED_DATA_DIR, f"{unique_code}.txt")
