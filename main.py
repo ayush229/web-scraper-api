@@ -57,19 +57,14 @@ def requires_auth(f):
     def decorated(*args, **kwargs):
         # Allow OPTIONS requests to pass without authentication
         if request.method == 'OPTIONS':
-            # For OPTIONS requests, just return a 200 OK response.
-            # Flask-CORS will add the necessary CORS headers.
-            response = make_response()
-            response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
-            response.headers.add('Access-Control-Allow-Headers', request.headers.get('Access-Control-Request-Headers', 'Authorization, Content-Type'))
-            response.headers.add('Access-Control-Allow-Methods', request.headers.get('Access-Control-Request-Method', 'GET, POST, PUT, DELETE'))
-            response.headers.add('Access-Control-Allow-Credentials', 'true')
-            return response, 200
+            # Simply return a 200 OK status.
+            # Flask-CORS should intercept this and add the necessary headers.
+            return '', 200 # Or return ({}, 200) or (jsonify({}), 200)
 
         # Your existing authentication logic for other methods (GET, POST, PUT, DELETE)
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
-            return authenticate() # This will still handle authentication failure for non-OPTIONS requests
+            return authenticate()
 
         return f(*args, **kwargs)
     return decorated
